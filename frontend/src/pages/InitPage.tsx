@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../stores/appStore'
+import { sessionService } from '../services/session'
 import './InitPage.css'
 
 const stages = [
@@ -108,32 +109,21 @@ const InitPage: React.FC = () => {
     try {
       console.log('开始提交表单...')
       
-      const formDataObj = new FormData()
-      formDataObj.append('vision', formData.vision)
-      formDataObj.append('mission', formData.mission)
-      formDataObj.append('values', JSON.stringify(formData.values.filter(v => v.trim())))
-      formDataObj.append('company_name', formData.company_name)
-      formDataObj.append('industry', formData.industry)
-      formDataObj.append('stage', formData.stage)
-      formDataObj.append('team_size', formData.current_size)
-      formDataObj.append('selected_track', formData.selected_track)
-      formDataObj.append('additional_info', formData.additional_info || formData.core_business)
-
-      console.log('发送请求到后端...')
-      const response = await fetch('/api/sessions', {
-        method: 'POST',
-        body: formDataObj
-      })
-
-      console.log('响应状态:', response.status)
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('响应错误:', errorText)
-        throw new Error(`创建会话失败: ${response.status} ${response.statusText}`)
+      const sessionData = {
+        vision: formData.vision,
+        mission: formData.mission,
+        values: formData.values.filter(v => v.trim()),
+        company_name: formData.company_name,
+        industry: formData.industry,
+        stage: formData.stage,
+        team_size: formData.current_size,
+        selected_track: formData.selected_track,
+        additional_info: formData.additional_info || formData.core_business
       }
 
-      console.log('解析响应数据...')
-      const data = await response.json()
+      console.log('发送请求到后端...')
+      const data = await sessionService.create(sessionData)
+
       console.log('响应数据:', data)
       
       setSessionId(data.session_id)
