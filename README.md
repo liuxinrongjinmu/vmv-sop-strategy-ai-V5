@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # VMV-SOP战略咨询系统
 
 基于"From VMV to SOP"理论的AI驱动战略咨询系统，帮助创业者和企业管理者进行深度战略分析。
@@ -142,3 +143,6 @@ vmv-sop-strategy-ai-V5/
 ## 许可证
 
 MIT License
+=======
+# vmv-sop-strategy-ai-V5
+>>>>>>> 43ff614d8b4d1b73443f5b0f72ccf05c56524473
