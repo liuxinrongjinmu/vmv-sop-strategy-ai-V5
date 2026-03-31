@@ -5,11 +5,10 @@
       "VITE_API_URL": "https://incredible-harmony-production-2226.up.railway.app"
     }
   },
-  "buildCommand": "npm install && npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "cd frontend && npm install",
   "framework": "vite",
-  "rootDirectory": "frontend",
   "rewrites": [
     {
       "source": "/(.*)",
