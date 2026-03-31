@@ -15,60 +15,27 @@ logger = logging.getLogger(__name__)
 
 @router.post("", response_model=SessionResponse)
 async def create_session(
-    vision: str = Form(...),
-    mission: str = Form(...),
-    values: str = Form(...),
-    company_name: str = Form(...),
-    industry: str = Form(...),
-    stage: str = Form(...),
-    team_size: str = Form(...),
-    selected_track: str = Form(...),
-    additional_info: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
+    session_data: SessionCreate,
     db: AsyncSession = Depends(get_session)
 ):
     """
     创建新会话
     接收VMV和基本信息，初始化会话状态
-    支持文件上传并解析文件内容
     """
-    logger.info(f"收到创建会话请求: company_name={company_name}, industry={industry}")
+    logger.info(f"收到创建会话请求: company_name={session_data.company_name}, industry={session_data.industry}")
     
-    # 解析values
-    try:
-        parsed_values = json.loads(values)
-        logger.info(f"解析values成功: {parsed_values}")
-    except json.JSONDecodeError:
-        logger.warning(f"解析values失败，使用空列表")
-        parsed_values = []
-    
-    # 解析文件内容
-    file_contents = []
-    if files:
-        parser = FileParser()
-        for file in files:
-            try:
-                content = await file.read()
-                file_content = await parser.parse_file(content, file.filename)
-                file_contents.append(f"文件: {file.filename}\n{file_content}")
-            except Exception as e:
-                print(f"解析文件 {file.filename} 失败: {e}")
-                file_contents.append(f"文件: {file.filename}\n解析失败: {str(e)}")
-    
-    # 合并附加信息和文件内容
-    combined_info = additional_info or ""
-    if file_contents:
-        combined_info += "\n\n" + "\n\n".join(file_contents)
+    # 合并附加信息
+    combined_info = session_data.additional_info or ""
     
     session = SessionModel(
-        vision=vision,
-        mission=mission,
-        values=parsed_values,
-        company_name=company_name,
-        industry=industry,
-        stage=stage,
-        team_size=team_size,
-        selected_track=selected_track,
+        vision=session_data.vision,
+        mission=session_data.mission,
+        values=session_data.values,
+        company_name=session_data.company_name,
+        industry=session_data.industry,
+        stage=session_data.stage,
+        team_size=session_data.team_size,
+        selected_track=session_data.selected_track,
         additional_info=combined_info,
         current_stage=1,
         status="active"
