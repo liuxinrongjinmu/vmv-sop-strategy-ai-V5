@@ -1,12 +1,5 @@
 import axios from 'axios'
 
-// 修复 Vite 环境变量类型
-declare global {
-  interface ImportMeta {
-    env: Record<string, string | undefined>
-  }
-}
-
 const baseURL = import.meta.env.VITE_API_URL 
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api'
