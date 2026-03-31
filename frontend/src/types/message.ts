@@ -10,6 +10,7 @@ export interface MessageResponse {
   content: string
   stage: number
   created_at: string
+  metadata?: any
 }
 
 export interface FileUploadResponse {

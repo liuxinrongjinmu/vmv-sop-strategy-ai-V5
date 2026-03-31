@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # VMV-SOP战略咨询系统
 
 基于"From VMV to SOP"理论的AI驱动战略咨询系统，帮助创业者和企业管理者进行深度战略分析。
@@ -19,13 +18,12 @@
 - FastAPI - 高性能异步Web框架
 - SQLAlchemy - ORM
 - 智谱GLM-4 + 千问Max - 大模型双备份
-- Serper/Tavily - 搜索API
+- Tavily - 搜索API
 - PyMuPDF + python-docx - 文件解析
 
 ### 前端
 - React 18 + TypeScript
 - Vite - 构建工具
-- Ant Design - UI组件库
 - Zustand - 状态管理
 
 ## 快速开始
@@ -48,7 +46,7 @@
    ```env
    ZHIPU_API_KEY=your_zhipu_api_key
    QWEN_API_KEY=your_qwen_api_key
-   SERPER_API_KEY=your_serper_api_key
+   TAVILY_API_KEY=your_tavily_api_key
    ```
 
 3. **启动服务**
@@ -111,9 +109,7 @@ vmv-sop-strategy-ai-V5/
 | 接口 | 方法 | 描述 |
 |------|------|------|
 | `/api/sessions` | POST | 创建会话 |
-| `/api/sessions/{id}` | GET | 获取会话详情 |
 | `/api/chat/send` | POST | 发送消息 |
-| `/api/chat/history/{id}` | GET | 获取对话历史 |
 | `/api/chat/upload` | POST | 上传文件 |
 | `/api/report/generate` | POST | 生成报告 |
 | `/api/report/{id}/export` | GET | 导出报告 |
@@ -126,23 +122,6 @@ vmv-sop-strategy-ai-V5/
 4. **预判采集**：输入对选定赛道的十年预判
 5. **报告生成**：系统生成分析报告
 
-## 配置说明
-
-### 大模型配置
-
-系统支持智谱GLM-4和千问Max双备份，当一个模型调用失败时自动切换。
-
-### 搜索API配置
-
-支持Serper和Tavily两种搜索服务，用于获取实时行业数据。
-
-## 扩展性
-
-系统预留了五年、三年、一年战略Agent接口，可根据需要扩展。
-
 ## 许可证
 
 MIT License
-=======
-# vmv-sop-strategy-ai-V5
->>>>>>> 43ff614d8b4d1b73443f5b0f72ccf05c56524473

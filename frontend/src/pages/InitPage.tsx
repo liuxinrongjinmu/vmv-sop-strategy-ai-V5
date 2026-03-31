@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { sessionService } from '../services/session'
 import { useAppStore } from '../stores/appStore'
 import './InitPage.css'
 

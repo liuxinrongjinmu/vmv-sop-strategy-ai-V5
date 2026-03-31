@@ -5,7 +5,7 @@ export interface SessionCreate {
   company_name: string
   industry: string
   stage: string
-  team_size?: number
+  team_size?: string
   selected_track: string
   additional_info?: string
 }
@@ -24,7 +24,7 @@ export interface SessionDetail extends SessionResponse {
   company_name?: string
   industry?: string
   stage?: string
-  team_size?: number
+  team_size?: string
   selected_track?: string
   additional_info?: string
 }
