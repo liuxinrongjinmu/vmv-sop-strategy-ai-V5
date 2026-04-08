@@ -135,7 +135,8 @@ const ChatPage: React.FC = () => {
           sendSystemMessage('报告已为您生成，请问您对这份报告，还有需要交流、探讨的地方吗？')
         } catch (reportError: any) {
           console.error('报告生成失败:', reportError)
-          sendSystemMessage('报告生成失败: ' + (reportError.response?.data?.detail || reportError.message || '未知错误'))
+          const errorMsg = reportError.response?.data?.detail || reportError.message || '未知错误'
+          sendSystemMessage('报告生成失败: ' + errorMsg)
           setCurrentStage(3)
         }
       } else if (userMessage.includes('不需要') || userMessage.includes('不用') || userMessage.includes('没有') || userMessage.includes('满意')) {

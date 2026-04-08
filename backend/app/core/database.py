@@ -20,6 +20,8 @@ async_session = async_sessionmaker(
     expire_on_commit=False
 )
 
+async_session_factory = async_session
+
 class Base(DeclarativeBase):
     """SQLAlchemy基类"""
     pass
