@@ -731,12 +731,6 @@ class TenYearAgent:
         sections.append("### 5.7 综合判断总结\n\n")
         sections.append(f"{judgment.get('summary', '')}\n")
         
-        valid_sources = self._extract_valid_sources(search_results)
-        if valid_sources:
-            sections.append("\n## 六、参考信源\n\n")
-            for source in valid_sources:
-                sections.append(f"- [{source['title']}]({source['url']})\n")
-        
         return "\n".join(sections)
     
     def _build_enterprise_section_brief(self, enterprise_analysis: Dict) -> str:
