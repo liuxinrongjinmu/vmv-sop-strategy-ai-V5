@@ -37,16 +37,25 @@ class LLMService:
         """
         providers = [provider] if provider else [self.primary_provider, self.fallback_provider]
         
+        print(f"[LLM] 开始生成文本，使用提供商: {providers}")
+        print(f"[LLM] 提示词长度: {len(prompt)} 字符")
+        
         errors = []
         for p in providers:
             try:
+                print(f"[LLM] 调用模型: {p}")
                 if p == "zhipu":
-                    return await self._call_zhipu(prompt, temperature, max_tokens)
+                    result = await self._call_zhipu(prompt, temperature, max_tokens)
+                    print(f"[LLM] 模型 {p} 调用成功，结果长度: {len(result)} 字符")
+                    return result
                 elif p == "qwen":
-                    return await self._call_qwen(prompt, temperature, max_tokens)
+                    result = await self._call_qwen(prompt, temperature, max_tokens)
+                    print(f"[LLM] 模型 {p} 调用成功，结果长度: {len(result)} 字符")
+                    return result
             except Exception as e:
                 error_msg = f"模型 {p} 调用失败: {str(e)}"
                 print(f"[LLM] {error_msg}")
+                print(f"[LLM] 错误详情: {traceback.format_exc()}")
                 errors.append(error_msg)
                 continue
         

@@ -20,21 +20,38 @@ class TenYearAgent:
         chat_history = context.get("chat_history", [])
         uploaded_files = context.get("uploaded_files", [])
         
+        print("[TenYearAgent] 开始分析...")
+        print(f"[TenYearAgent] 预测内容: {prediction[:100]}...")
+        
+        print("[TenYearAgent] 提取关键洞察...")
         key_insights = await self._extract_key_insights(chat_history, uploaded_files, session_info)
+        print(f"[TenYearAgent] 关键洞察提取完成")
         
+        print("[TenYearAgent] 分析企业背景...")
         enterprise_analysis = await self._analyze_enterprise(session_info, key_insights)
+        print(f"[TenYearAgent] 企业背景分析完成")
         
+        print("[TenYearAgent] 提取关键假设...")
         assumptions = await self._extract_assumptions(prediction, key_insights, enterprise_analysis)
+        print(f"[TenYearAgent] 关键假设提取完成: {len(assumptions)}个假设")
         
+        print("[TenYearAgent] 搜索证据...")
         search_results = await self._search_evidence(assumptions, session_info, key_insights, prediction)
+        print(f"[TenYearAgent] 证据搜索完成: 支持{len(search_results['supporting'])}条, 反对{len(search_results['opposing'])}条")
         
+        print("[TenYearAgent] 构建论据...")
         arguments = await self._build_arguments(
             prediction, assumptions, search_results, session_info, key_insights, enterprise_analysis
         )
+        print(f"[TenYearAgent] 论据构建完成: 正面{len(arguments.get('positive_arguments', []))}条, 反面{len(arguments.get('negative_arguments', []))}条")
         
+        print("[TenYearAgent] 生成综合判断...")
         judgment = await self._generate_judgment(arguments, session_info, key_insights, enterprise_analysis)
+        print(f"[TenYearAgent] 综合判断生成完成")
         
+        print("[TenYearAgent] 格式化报告...")
         report = self._format_report(prediction, arguments, judgment, search_results, key_insights, enterprise_analysis)
+        print(f"[TenYearAgent] 报告生成完成: 内容长度{len(report['content'])}字符")
         
         return report
     
