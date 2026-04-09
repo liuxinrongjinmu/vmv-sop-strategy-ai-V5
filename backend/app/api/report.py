@@ -89,7 +89,7 @@ async def generate_report(
         "message": "正在生成报告...",
         "session_db_id": session.id,
         "report_type": data.report_type,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     }
     
     background_tasks.add_task(
@@ -145,7 +145,7 @@ async def _generate_report_background(
             report_tasks[task_id]["title"] = report.title
             report_tasks[task_id]["content"] = report.content
             report_tasks[task_id]["sources"] = report.sources
-            report_tasks[task_id]["created_at"] = report.created_at.isoformat()
+            report_tasks[task_id]["created_at"] = report.created_at.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     except Exception as e:
         print(f"[ReportTask] 报告生成失败: {e}")
