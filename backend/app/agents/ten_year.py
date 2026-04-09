@@ -255,17 +255,17 @@ class TenYearAgent:
 支持：{supporting_text or "无"}
 反对：{opposing_text or "无"}
 
-输出JSON（每个argumentation/risk_analysis 250-400字）：
+输出JSON（根据实际情况智能决定数量，内容精炼突出重点，避免重复冗余）：
 {{
   "positive_arguments": [
-    {{"title":"标题","core_point":"核心观点20字内","argumentation":"论证250-400字","key_data":["数据1","数据2","data3"],"logic_steps":["步骤1","步骤2","步骤3","步骤4"],"enterprise_implication":"企业启示80字内"}}
+    {{"title":"标题","core_point":"核心观点20字内","argumentation":"论证200-350字","logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}}
   ],
   "negative_arguments": [
-    {{"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析250-400字","risk_indicators":["指标1","指标2","指标3"],"trigger_scenarios":["场景1","场景2"],"enterprise_impact":"企业影响80字内","mitigation":"应对措施80字内"}}
+    {{"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析200-350字","risk_indicators":["指标1","指标2"],"trigger_scenarios":["场景1"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}}
   ]
 }}
 
-要求：各2-3条论据，结合企业具体情况。"""
+要求：根据预判实际内容智能确定论据数量，每个论据精炼突出核心要点，不要为了凑数量而重复。"""
 
         response = await llm_service.generate(prompt, temperature=0.5, max_tokens=3000)
         
@@ -332,18 +332,20 @@ class TenYearAgent:
 正面论据：{pos_args}
 反面论据：{neg_args}
 
-输出JSON：
+输出JSON（根据实际情况智能决定各项数量，内容精炼突出重点，避免重复冗余）：
 {{
   "credibility_level":"高/中/低",
   "credibility_score":75,
-  "score_reasoning":"评分理由100字内",
-  "swot_analysis":{{"strengths":["优势1","优势2"],"weaknesses":["劣势1"],"opportunities":["机会1"],"threats":["威胁1"]}},
-  "key_variables":[{{"variable":"变量名","description":"说明40字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法40字内"}}],
-  "scenario_analysis":{{"optimistic_scenario":"乐观情景60字内","baseline_scenario":"基准情景60字内","pessimistic_scenario":"悲观情景60字内"}},
-  "action_suggestions":[{{"suggestion":"建议","rationale":"理由80字内","priority":"高/中/低","timeline":"时间"}}],
+  "score_reasoning":"评分理由80字内",
+  "swot_analysis":{{"strengths":["优势"],"weaknesses":["劣势"],"opportunities":["机会"],"threats":["威胁"]}},
+  "key_variables":[{{"variable":"变量名","description":"说明30字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法30字内"}}],
+  "scenario_analysis":{{"optimistic_scenario":"乐观情景50字内","baseline_scenario":"基准情景50字内","pessimistic_scenario":"悲观情景50字内"}},
+  "action_suggestions":[{{"suggestion":"建议","rationale":"理由60字内","priority":"高/中/低","timeline":"时间"}}],
   "risk_mitigation":[{{"risk":"风险","mitigation_strategy":"策略","contingency_plan":"预案"}}],
-  "summary":"总结300字内：整体评价+成功因素+风险提示+战略方向"
-}}"""
+  "summary":"总结250字内：整体评价+成功因素+风险提示+战略方向"
+}}
+
+要求：关键变量、行动建议、风险应对等根据实际分析需要确定数量，不要为了凑数量而重复。"""
 
         response = await llm_service.generate(prompt, temperature=0.4, max_tokens=2000)
         
@@ -407,7 +409,7 @@ class TenYearAgent:
         
         sections.append("# 十年战略预判分析报告\n")
         sections.append("## 一、预判摘要\n")
-        sections.append(f"{prediction}\n\n")
+        sections.append(f"{prediction}\n\n---\n\n")
         
         sections.append("## 二、正面论据分析\n")
         for i, arg in enumerate(arguments.get("positive_arguments", []), 1):
@@ -415,12 +417,12 @@ class TenYearAgent:
             sections.append(f"**核心观点：** {arg.get('core_point', '')}\n\n")
             if arg.get('argumentation'):
                 sections.append(f"**论证过程：**\n\n{arg.get('argumentation')}\n\n")
-            if arg.get('key_data'):
-                sections.append("**关键数据支撑：**\n" + "\n".join(f"- {d}" for d in arg.get('key_data', [])) + "\n\n")
             if arg.get('logic_steps'):
                 sections.append("**逻辑推演步骤：**\n" + "\n".join(f"{j}. {s}" for j, s in enumerate(arg.get('logic_steps', []), 1)) + "\n\n")
             if arg.get('enterprise_implication'):
-                sections.append(f"**对企业启示：** {arg.get('enterprise_implication')}\n\n---\n\n")
+                sections.append(f"**对企业启示：** {arg.get('enterprise_implication')}\n\n")
+        
+        sections.append("---\n\n")
         
         sections.append("## 三、反面论据分析\n")
         for i, arg in enumerate(arguments.get("negative_arguments", []), 1):
@@ -433,7 +435,9 @@ class TenYearAgent:
             if arg.get('enterprise_impact'):
                 sections.append(f"**对企业影响：** {arg.get('enterprise_impact')}\n")
             if arg.get('mitigation'):
-                sections.append(f"**应对措施：** {arg.get('mitigation')}\n---\n\n")
+                sections.append(f"**应对措施：** {arg.get('mitigation')}\n\n")
+        
+        sections.append("---\n\n")
         
         sections.append("## 四、综合判断\n")
         sections.append(f"### 4.1 可信度评估\n**等级：** {judgment.get('credibility_level', '中')} | **评分：** {judgment.get('credibility_score', 50)}/100\n\n")
@@ -448,22 +452,27 @@ class TenYearAgent:
             sections.append(f"- **机会：** {', '.join(swot.get('opportunities', []))}\n")
             sections.append(f"- **威胁：** {', '.join(swot.get('threats', []))}\n\n")
         
-        sections.append("### 4.3 关键变量识别\n\n")
-        for var in judgment.get("key_variables", []):
-            if isinstance(var, dict):
-                sections.append(f"**{var.get('variable', '')}** - {var.get('description', '')}（影响：{var.get('impact', '')}/{var.get('impact_degree', '中')}）\n")
+        key_vars = judgment.get("key_variables", [])
+        if key_vars:
+            sections.append("### 4.3 关键变量识别\n\n")
+            for var in key_vars:
+                if isinstance(var, dict):
+                    sections.append(f"**{var.get('variable', '')}** - {var.get('description', '')}（影响：{var.get('impact', '')}/{var.get('impact_degree', '中')}）\n")
+            sections.append("\n")
         
         scenario = judgment.get("scenario_analysis", {})
         if scenario:
-            sections.append("\n### 4.4 情景分析\n\n")
+            sections.append("### 4.4 情景分析\n\n")
             sections.append(f"- **乐观：** {scenario.get('optimistic_scenario', '')}\n")
             sections.append(f"- **基准：** {scenario.get('baseline_scenario', '')}\n")
             sections.append(f"- **悲观：** {scenario.get('pessimistic_scenario', '')}\n\n")
         
-        sections.append("### 4.5 行动建议\n\n")
-        for i, sug in enumerate(judgment.get("action_suggestions", []), 1):
-            if isinstance(sug, dict):
-                sections.append(f"**建议{i}: {sug.get('suggestion', '')}** - 理由：{sug.get('rationale', '')} | 优先级：{sug.get('priority', '')} | 时间：{sug.get('timeline', '')}\n\n")
+        suggestions = judgment.get("action_suggestions", [])
+        if suggestions:
+            sections.append("### 4.5 行动建议\n\n")
+            for i, sug in enumerate(suggestions, 1):
+                if isinstance(sug, dict):
+                    sections.append(f"**建议{i}: {sug.get('suggestion', '')}** - 理由：{sug.get('rationale', '')} | 优先级：{sug.get('priority', '')} | 时间：{sug.get('timeline', '')}\n\n")
         
         rm_list = judgment.get("risk_mitigation", [])
         if rm_list:
