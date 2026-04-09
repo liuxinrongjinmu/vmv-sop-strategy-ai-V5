@@ -369,21 +369,23 @@ const ChatPage: React.FC = () => {
               type="file"
               ref={fileInputRef}
               onChange={handleFileUpload}
-              accept=".pdf,.docx,.doc"
+              accept=".pdf,.docx,.doc,.md"
               style={{ display: 'none' }}
             />
             
             <button 
-              className="upload-btn"
+              className="upload-icon-btn"
               onClick={() => fileInputRef.current?.click()}
-              title="上传文件"
+              title="上传文件（支持PDF、DOCX、MD）"
             >
-              📎
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+              </svg>
             </button>
             
             <textarea
               className="input-textarea"
-              placeholder="输入消息... (直接分享您的预判即可生成报告)"
+              placeholder="输入消息... （直接分享您的预判即可生成报告）"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -391,13 +393,31 @@ const ChatPage: React.FC = () => {
               rows={1}
             />
             
-            <button 
-              className="send-btn glass-button"
-              onClick={handleSend}
-              disabled={!inputValue.trim() || isLoading}
-            >
-              发送
-            </button>
+            {inputValue.trim() ? (
+              <button 
+                className="send-circle-btn"
+                onClick={handleSend}
+                disabled={!inputValue.trim() || isLoading}
+                title="发送"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            ) : (
+              <button 
+                className="voice-circle-btn"
+                disabled={isLoading}
+                title="语音输入"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 6 13 2 13 6 17 11 13"/>
+                  <path d="M19 15V9"/>
+                  <line x1="22" y1="12" x2="16" y2="12"/>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>
