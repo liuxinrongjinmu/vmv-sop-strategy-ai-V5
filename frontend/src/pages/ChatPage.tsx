@@ -174,6 +174,12 @@ const ChatPage: React.FC = () => {
       sendSystemMessage('请先创建会话')
       return
     }
+
+    const MAX_SIZE = 10 * 1024 * 1024
+    if (file.size > MAX_SIZE) {
+      sendSystemMessage(`文件过大(${(file.size / 1024 / 1024).toFixed(1)}MB)，请选择10MB以内的文件`)
+      return
+    }
     
     try {
       setIsLoading(true)
@@ -197,9 +203,27 @@ const ChatPage: React.FC = () => {
       
       addMessage(aiResponse)
       setCurrentStage(aiResponse.stage)
-    } catch (error) {
+    } catch (error: any) {
       console.error('文件上传失败:', error)
-      sendSystemMessage('文件上传失败，请重试。')
+      let errorMsg = '文件上传失败'
+      if (error.code === 'ERR_NETWORK' || !error.response) {
+        errorMsg = '网络连接失败，请检查网络后重试'
+      } else if (error.response) {
+        const status = error.response.status
+        const detail = error.response.data?.detail || error.message
+        if (status === 413) {
+          errorMsg = '文件过大，请选择更小的文件（最大10MB）'
+        } else if (status === 400) {
+          errorMsg = `文件格式不支持: ${detail}`
+        } else if (status === 500) {
+          errorMsg = `文件解析失败: ${detail}`
+        } else {
+          errorMsg = `上传失败(${status}): ${detail}`
+        }
+      } else {
+        errorMsg = `上传失败: ${error.message || '未知错误'}`
+      }
+      sendSystemMessage(errorMsg + '，请重试。')
     } finally {
       setIsLoading(false)
       if (fileInputRef.current) {
