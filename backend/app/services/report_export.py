@@ -45,9 +45,13 @@ class ReportExportService:
                 try:
                     pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
                     self.chinese_font = 'ChineseFont'
+                    print(f"字体初始化成功: {font_path}")
                     return
-                except Exception:
+                except Exception as e:
+                    print(f"字体注册失败 {font_path}: {e}")
                     continue
+        
+        print("未找到系统中文字体，尝试下载 Noto Sans SC...")
         
         try:
             font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
@@ -56,13 +60,22 @@ class ReportExportService:
             font_path = os.path.join(font_dir, "NotoSansSC-Regular.otf")
             
             if not os.path.exists(font_path):
+                print(f"下载字体到: {font_path}")
                 urllib.request.urlretrieve(font_url, font_path)
+                print("字体下载完成")
             
             if os.path.exists(font_path) and os.path.getsize(font_path) > 1000:
                 pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
                 self.chinese_font = 'ChineseFont'
+                print("字体注册成功: NotoSansSC-Regular.otf")
+            else:
+                print("字体文件无效")
         except Exception as e:
             print(f"字体下载失败: {e}")
+            print("将使用默认字体 (可能不支持中文)")
+        
+        if not self.chinese_font:
+            print("警告: 未找到中文字体，PDF 导出可能会出现乱码")
     
     def export_markdown(self, content: str, title: str) -> Tuple[bytes, str]:
         """
