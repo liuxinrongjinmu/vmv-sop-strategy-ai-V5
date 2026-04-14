@@ -208,27 +208,28 @@ class TenYearAgent:
         keywords = (prediction[:80] + " " + track + " " + industry).strip()
         
         try:
-            support_query = f"{keywords} 市场分析 发展趋势 增长"
-            print(f"[Search] 支持性搜索: {support_query[:60]}...")
-            support_results = await search_service.search(support_query, 5)
-            for r in support_results:
-                if r.get("link", "").startswith("http"):
-                    results["supporting"].append(r)
+            # 只执行一次搜索，同时获取支持和反对的信息
+            combined_query = f"{keywords} 市场分析 发展趋势 增长 风险 挑战 竞争"
+            print(f"[Search] 综合搜索: {combined_query[:60]}...")
+            combined_results = await search_service.search(combined_query, 8)
             
-            oppose_query = f"{keywords} 风险 挑战 竞争"
-            print(f"[Search] 反对性搜索: {oppose_query[:60]}...")
-            oppose_results = await search_service.search(oppose_query, 5)
-            for r in oppose_results:
+            # 简单分类结果
+            for r in combined_results:
                 if r.get("link", "").startswith("http"):
-                    results["opposing"].append(r)
+                    # 根据标题和摘要简单分类
+                    text = (r.get("title", "") + " " + r.get("snippet", "")).lower()
+                    if any(word in text for word in ["增长", "趋势", "机遇", "发展", "市场"]):
+                        results["supporting"].append(r)
+                    else:
+                        results["opposing"].append(r)
                         
         except Exception as e:
             print(f"搜索服务调用失败: {e}")
         
         seen_urls = set()
-        results["supporting"] = [r for r in results["supporting"] if r["link"] not in seen_urls and not seen_urls.add(r["link"])][:6]
+        results["supporting"] = [r for r in results["supporting"] if r["link"] not in seen_urls and not seen_urls.add(r["link"])][:4]
         seen_urls.clear()
-        results["opposing"] = [r for r in results["opposing"] if r["link"] not in seen_urls and not seen_urls.add(r["link"])][:6]
+        results["opposing"] = [r for r in results["opposing"] if r["link"] not in seen_urls and not seen_urls.add(r["link"])][:4]
         
         print(f"[Search] 最终结果: 支持{len(results['supporting'])}条, 反对{len(results['opposing'])}条")
         return results
@@ -244,8 +245,8 @@ class TenYearAgent:
         """
         构建正反论据（基于事实和数据）
         """
-        supporting_text = self._format_search_results(search_results["supporting"][:6])
-        opposing_text = self._format_search_results(search_results["opposing"][:6])
+        supporting_text = self._format_search_results(search_results["supporting"][:3])
+        opposing_text = self._format_search_results(search_results["opposing"][:3])
         
         enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
         name = enterprise_profile.get('name', '企业')
@@ -267,10 +268,10 @@ class TenYearAgent:
 已知劣势：{', '.join(disadvantages) or '需要更多信息'}
 
 ## 预判
-{prediction[:400]}
+{prediction[:200]}
 
 ## 关键假设
-{chr(10).join(f'- {a}' for a in assumptions)}
+{chr(10).join(f'- {a}' for a in assumptions[:3])}
 
 ## 市场数据和参考信息
 支持性信息：
@@ -284,21 +285,20 @@ class TenYearAgent:
 2. 对关键结论必须提供数据支持或明确标注为假设
 3. 避免基于企业名称的臆测
 4. 当信息不足时，明确标注为"基于有限信息的分析"
-5. 每个论据必须包含：核心观点、论证过程、数据支持、逻辑步骤、企业启示
 
-输出JSON（根据实际情况智能决定数量，内容精炼突出重点）：
+输出JSON（每个方向1-2个论据，内容精炼）：
 {
   "positive_arguments": [
-    {"title":"标题","core_point":"核心观点20字内","argumentation":"论证200-350字，包含数据支持","key_data":["数据1","数据2"],"logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}
+    {"title":"标题","core_point":"核心观点20字内","argumentation":"论证150-200字，包含数据支持","key_data":["数据1","数据2"],"logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}
   ],
   "negative_arguments": [
-    {"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析200-350字，包含数据支持","risk_indicators":["指标1","指标2"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}
+    {"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析150-200字，包含数据支持","risk_indicators":["指标1","指标2"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}
   ]
 }
 
 要求：严格基于事实信息，避免臆测，每个结论都要有数据支持或明确标注为假设。"""
 
-        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=3500)
+        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=2500)
         
         try:
             json_start = response.find("{")
@@ -352,8 +352,8 @@ class TenYearAgent:
         enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
         name = enterprise_profile.get('name', '')
         
-        pos_args = json.dumps(arguments.get('positive_arguments', []), ensure_ascii=False)[:1500]
-        neg_args = json.dumps(arguments.get('negative_arguments', []), ensure_ascii=False)[:1500]
+        pos_args = json.dumps(arguments.get('positive_arguments', [])[:2], ensure_ascii=False)[:1000]
+        neg_args = json.dumps(arguments.get('negative_arguments', [])[:2], ensure_ascii=False)[:1000]
         
         prompt = f"""基于以下论据生成综合判断（JSON格式）：
 
@@ -362,22 +362,22 @@ class TenYearAgent:
 正面论据：{pos_args}
 反面论据：{neg_args}
 
-输出JSON（根据实际情况智能决定各项数量，内容精炼突出重点，避免重复冗余）：
+输出JSON（内容精炼，重点突出）：
 {
   "credibility_level":"高/中/低",
   "credibility_score":75,
-  "score_reasoning":"评分理由80字内",
+  "score_reasoning":"评分理由60字内",
   "swot_analysis":{"strengths":["优势"],"weaknesses":["劣势"],"opportunities":["机会"],"threats":["威胁"]},
-  "key_variables":[{"variable":"变量名","description":"说明30字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法30字内"}],
-  "scenario_analysis":{"optimistic_scenario":"乐观情景50字内","baseline_scenario":"基准情景50字内","pessimistic_scenario":"悲观情景50字内"},
-  "action_suggestions":[{"suggestion":"建议","rationale":"理由60字内","priority":"高/中/低","timeline":"时间"}],
+  "key_variables":[{"variable":"变量名","description":"说明20字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法20字内"}],
+  "scenario_analysis":{"optimistic_scenario":"乐观情景30字内","baseline_scenario":"基准情景30字内","pessimistic_scenario":"悲观情景30字内"},
+  "action_suggestions":[{"suggestion":"建议","rationale":"理由40字内","priority":"高/中/低","timeline":"时间"}],
   "risk_mitigation":[{"risk":"风险","mitigation_strategy":"策略","contingency_plan":"预案"}],
-  "summary":"总结250字内：整体评价+成功因素+风险提示+战略方向"
+  "summary":"总结150字内：整体评价+成功因素+风险提示+战略方向"
 }
 
-要求：关键变量、行动建议、风险应对等根据实际分析需要确定数量，不要为了凑数量而重复。"""
+要求：内容精炼，重点突出，不要重复。"""
 
-        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=2000)
+        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=1500)
         
         try:
             json_start = response.find("{")
