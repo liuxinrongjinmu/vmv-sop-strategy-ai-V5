@@ -14,6 +14,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os
 import re
+import urllib.request
+import tempfile
 
 class ReportExportService:
     """
@@ -25,25 +27,42 @@ class ReportExportService:
         self._init_fonts()
     
     def _init_fonts(self):
-        """初始化中文字体"""
+        """初始化中文字体，支持 Windows 和 Linux (Railway)"""
+        self.chinese_font = None
+        
+        font_paths = [
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+            "C:/Windows/Fonts/simsun.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        ]
+        
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+                    self.chinese_font = 'ChineseFont'
+                    return
+                except Exception:
+                    continue
+        
         try:
-            font_paths = [
-                "C:/Windows/Fonts/msyh.ttc",
-                "C:/Windows/Fonts/simhei.ttf",
-                "C:/Windows/Fonts/simsun.ttc",
-            ]
-            self.chinese_font = None
-            for font_path in font_paths:
-                if os.path.exists(font_path):
-                    try:
-                        pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
-                        self.chinese_font = 'ChineseFont'
-                        break
-                    except:
-                        continue
+            font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
+            font_dir = os.path.join(tempfile.gettempdir(), "fonts")
+            os.makedirs(font_dir, exist_ok=True)
+            font_path = os.path.join(font_dir, "NotoSansSC-Regular.otf")
+            
+            if not os.path.exists(font_path):
+                urllib.request.urlretrieve(font_url, font_path)
+            
+            if os.path.exists(font_path) and os.path.getsize(font_path) > 1000:
+                pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+                self.chinese_font = 'ChineseFont'
         except Exception as e:
-            print(f"字体初始化警告: {e}")
-            self.chinese_font = None
+            print(f"字体下载失败: {e}")
     
     def export_markdown(self, content: str, title: str) -> Tuple[bytes, str]:
         """
