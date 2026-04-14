@@ -24,10 +24,15 @@ class ReportExportService:
     """
     
     def __init__(self):
-        self._init_fonts()
+        self.chinese_font = None
+        self.font_initialized = False
     
     def _init_fonts(self):
         """初始化中文字体，支持 Windows 和 Linux (Railway)"""
+        if self.font_initialized:
+            return
+        
+        self.font_initialized = True
         self.chinese_font = None
         
         font_paths = [
@@ -89,6 +94,9 @@ class ReportExportService:
         导出PDF格式
         使用reportlab生成PDF
         """
+        # 延迟初始化字体，避免服务启动时阻塞
+        self._init_fonts()
+        
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
