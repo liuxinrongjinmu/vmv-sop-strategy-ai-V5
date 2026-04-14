@@ -67,11 +67,27 @@ async def send_message(
         "additional_info": session.additional_info
     }
     
+    chat_history_result = await db.execute(
+        select(Message)
+        .where(Message.session_id == session.id)
+        .where(Message.role.in_(["user", "assistant"]))
+        .order_by(Message.created_at.desc())
+        .limit(20)
+    )
+    chat_history = []
+    for msg in reversed(list(chat_history_result.scalars().all())):
+        extra = msg.extra_data or {}
+        if extra.get("type") == "report":
+            chat_history.append({"role": "assistant", "content": f"[十年战略分析报告]\n{msg.content[:8000]}"})
+        else:
+            chat_history.append({"role": msg.role, "content": msg.content[:2000]})
+    
     agent_result = await orchestrator_agent.process_message(
         data.content,
         session_info,
         session.current_stage,
-        uploaded_files
+        uploaded_files,
+        chat_history
     )
     
     if agent_result.get("stage") and agent_result["stage"] != session.current_stage:

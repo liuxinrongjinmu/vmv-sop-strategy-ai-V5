@@ -16,22 +16,14 @@ class OrchestratorAgent:
         message: str,
         session_info: Dict[str, Any],
         current_stage: int,
-        uploaded_files: List[Dict] = None
+        uploaded_files: List[Dict] = None,
+        chat_history: List[Dict] = None
     ) -> Dict[str, Any]:
-        """
-        处理用户消息
         
-        Args:
-            message: 用户消息
-            session_info: 会话信息
-            current_stage: 当前阶段
-            uploaded_files: 上传的文件列表
-        
-        Returns:
-            处理结果
-        """
         if uploaded_files is None:
             uploaded_files = []
+        if chat_history is None:
+            chat_history = []
             
         intent = await self._detect_intent(message, current_stage)
         
@@ -40,7 +32,7 @@ class OrchestratorAgent:
         elif intent == "stage_transition":
             return await self._handle_stage_transition(current_stage)
         else:
-            return await self._handle_general_chat(message, session_info, current_stage, uploaded_files)
+            return await self._handle_general_chat(message, session_info, current_stage, uploaded_files, chat_history)
     
     async def _detect_intent(self, message: str, current_stage: int) -> str:
         """
@@ -102,12 +94,22 @@ class OrchestratorAgent:
         message: str,
         session_info: Dict,
         current_stage: int,
-        uploaded_files: List[Dict] = None
+        uploaded_files: List[Dict] = None,
+        chat_history: List[Dict] = None
     ) -> Dict[str, Any]:
-        """
-        处理普通对话
-        """
+        
         context = self._build_context(session_info, current_stage)
+        
+        history_text = ""
+        if chat_history and len(chat_history) > 0:
+            history_parts = []
+            for msg in chat_history[-15:]:
+                role_label = "用户" if msg["role"] == "user" else "顾问"
+                content = msg.get("content", "")
+                if content:
+                    history_parts.append(f"**{role_label}**：{content}")
+            if history_parts:
+                history_text = "\n\n## 之前的对话记录（请参考这些内容来回复用户）\n\n" + "\n\n".join(history_parts)
         
         file_context = ""
         if uploaded_files:
@@ -132,6 +134,7 @@ class OrchestratorAgent:
 
 ## 用户背景
 {context}
+{history_text}
 
 ## 用户上传的文件内容
 {file_context}
@@ -139,7 +142,7 @@ class OrchestratorAgent:
 ## 用户消息
 {message}
 
-请根据用户上传的文件内容，给出专业、有针对性的回复。
+请根据用户上传的文件内容和之前的对话记录，给出专业、有针对性的回复。
 
 **重要要求：**
 1. **核心内容总结**：首先用2-3段话总结文件的核心内容，包括：
@@ -167,6 +170,7 @@ class OrchestratorAgent:
 
 ## 用户背景
 {context}
+{history_text}
 
 ## 当前阶段
 第{current_stage}阶段（共4阶段）：
@@ -178,7 +182,7 @@ class OrchestratorAgent:
 ## 用户消息
 {message}
 
-请根据用户消息和当前阶段，给出专业、有针对性的回复。
+请根据用户消息、之前的对话记录和当前阶段，给出专业、有针对性的回复。
 
 要求：
 1. 回复要紧密结合用户的企业背景和赛道特点
