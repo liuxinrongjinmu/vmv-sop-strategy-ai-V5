@@ -128,39 +128,51 @@ class TenYearAgent:
     
     async def _analyze_enterprise(self, session_info: Dict, key_insights: Dict) -> Dict[str, Any]:
         """
-        分析企业背景（精简版）
+        分析企业背景（增强版：基于事实数据）
         """
-        prompt = f"""对企业进行简要分析（JSON格式）：
-- 企业：{session_info.get('company_name', '未提供')}
-- 行业：{session_info.get('industry', '未提供')}
-- 阶段：{session_info.get('stage', '未提供')}
-- 规模：{session_info.get('team_size', '未提供')}
-- 赛道：{session_info.get('selected_track', '未提供')}
-- 愿景：{session_info.get('vision', '未提供')[:50]}
-- 使命：{session_info.get('mission', '未提供')[:50]}
-- 补充：{session_info.get('additional_info', '未提供')[:100]}
+        company_name = session_info.get('company_name', '未提供')
+        industry = session_info.get('industry', '未提供')
+        stage = session_info.get('stage', '未提供')
+        track = session_info.get('selected_track', '未提供')
+        additional_info = session_info.get('additional_info', '未提供')
+        
+        # 基于实际信息生成分析，避免臆测
+        prompt = f"""对企业进行分析（JSON格式），严格基于以下事实信息，不要臆测：
+- 企业：{company_name}
+- 行业：{industry}
+- 阶段：{stage}
+- 赛道：{track}
+- 补充信息：{additional_info[:200]}
 
-输出JSON：
-{{"enterprise_profile":{{"name":"企业名","industry":"行业","stage":"阶段","track":"赛道"}},"resource_summary":"80字资源概况","core_advantages":["优势1","优势2"],"core_disadvantages":["劣势1","劣势2"],"strategic_position":"50字定位"}}"""
+输出JSON，只包含基于上述信息的分析：
+{{"enterprise_profile":{{"name":"{company_name}","industry":"{industry}","stage":"{stage}","track":"{track}"}},"resource_summary":"80字资源概况（基于已知信息）","core_advantages":["基于已知信息的优势1","基于已知信息的优势2"],"core_disadvantages":["基于已知信息的劣势1","基于已知信息的劣势2"],"strategic_position":"50字定位（基于已知信息）"}}"""
 
         try:
-            response = await llm_service.generate(prompt, temperature=0.3, max_tokens=500)
+            response = await llm_service.generate(prompt, temperature=0.2, max_tokens=500)
             json_start = response.find("{")
             json_end = response.rfind("}") + 1
-            return json.loads(response[json_start:json_end])
+            analysis = json.loads(response[json_start:json_end])
+            
+            # 确保输出包含必要字段
+            if "core_advantages" in analysis and not analysis["core_advantages"]:
+                analysis["core_advantages"] = ["需要更多企业信息"]
+            if "core_disadvantages" in analysis and not analysis["core_disadvantages"]:
+                analysis["core_disadvantages"] = ["需要更多企业信息"]
+                
+            return analysis
         except Exception as e:
             print(f"企业分析失败: {e}")
             return {
                 "enterprise_profile": {
-                    "name": session_info.get("company_name", "未提供"),
-                    "industry": session_info.get("industry", "未提供"),
-                    "stage": session_info.get("stage", "未提供"),
-                    "track": session_info.get("selected_track", "未提供")
+                    "name": company_name,
+                    "industry": industry,
+                    "stage": stage,
+                    "track": track
                 },
-                "resource_summary": "企业资源处于发展积累阶段",
-                "core_advantages": ["发展潜力"],
-                "core_disadvantages": ["资源有限"],
-                "strategic_position": "处于市场进入或成长阶段"
+                "resource_summary": "基于有限信息，企业资源状况需要进一步确认",
+                "core_advantages": ["需要更多企业信息"],
+                "core_disadvantages": ["需要更多企业信息"],
+                "strategic_position": "基于有限信息，战略定位需要进一步确认"
             }
     
     async def _extract_assumptions(self, prediction: str, key_insights: Dict, enterprise_analysis: Dict) -> List[str]:
@@ -230,44 +242,63 @@ class TenYearAgent:
         enterprise_analysis: Dict
     ) -> Dict[str, List]:
         """
-        构建正反论据（优化版：降低tokens+简化prompt）
+        构建正反论据（基于事实和数据）
         """
-        supporting_text = self._format_search_results(search_results["supporting"][:4])
-        opposing_text = self._format_search_results(search_results["opposing"][:4])
+        supporting_text = self._format_search_results(search_results["supporting"][:6])
+        opposing_text = self._format_search_results(search_results["opposing"][:6])
         
         enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
         name = enterprise_profile.get('name', '企业')
+        industry = enterprise_profile.get('industry', '未提供')
+        track = enterprise_profile.get('track', '未提供')
+        stage = enterprise_profile.get('stage', '未提供')
         
-        prompt = f"""作为战略咨询顾问，基于以下信息构建正反论据。
+        advantages = enterprise_analysis.get('core_advantages', [])
+        disadvantages = enterprise_analysis.get('core_disadvantages', [])
+        
+        prompt = f"""作为战略咨询顾问，基于以下事实信息构建正反论据。
 
-## 企业
-{name}（{enterprise_profile.get('stage', '')}阶段），行业：{enterprise_profile.get('industry', '')}，赛道：{enterprise_profile.get('track', '')}
-优势：{', '.join(enterprise_analysis.get('core_advantages', []) or ['待建立'])}
-劣势：{', '.join(enterprise_analysis.get('core_disadvantages', []) or ['待改善'])}
+## 企业事实信息
+企业：{name}
+行业：{industry}
+阶段：{stage}
+赛道：{track}
+已知优势：{', '.join(advantages) or '需要更多信息'}
+已知劣势：{', '.join(disadvantages) or '需要更多信息'}
 
 ## 预判
 {prediction[:400]}
 
-## 假设
+## 关键假设
 {chr(10).join(f'- {a}' for a in assumptions)}
 
-## 参考信息
-支持：{supporting_text or "无"}
-反对：{opposing_text or "无"}
+## 市场数据和参考信息
+支持性信息：
+{supporting_text or "无具体数据支持"}
 
-输出JSON（根据实际情况智能决定数量，内容精炼突出重点，避免重复冗余）：
-{{
+反对性信息：
+{opposing_text or "无具体数据支持"}
+
+## 重要要求
+1. 所有分析结论必须基于上述事实信息和数据，不得臆测
+2. 对关键结论必须提供数据支持或明确标注为假设
+3. 避免基于企业名称的臆测
+4. 当信息不足时，明确标注为"基于有限信息的分析"
+5. 每个论据必须包含：核心观点、论证过程、数据支持、逻辑步骤、企业启示
+
+输出JSON（根据实际情况智能决定数量，内容精炼突出重点）：
+{
   "positive_arguments": [
-    {{"title":"标题","core_point":"核心观点20字内","argumentation":"论证200-350字","logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}}
+    {"title":"标题","core_point":"核心观点20字内","argumentation":"论证200-350字，包含数据支持","key_data":["数据1","数据2"],"logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}
   ],
   "negative_arguments": [
-    {{"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析200-350字","risk_indicators":["指标1","指标2"],"trigger_scenarios":["场景1"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}}
+    {"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析200-350字，包含数据支持","risk_indicators":["指标1","指标2"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}
   ]
-}}
+}
 
-要求：根据预判实际内容智能确定论据数量，每个论据精炼突出核心要点，不要为了凑数量而重复。"""
+要求：严格基于事实信息，避免臆测，每个结论都要有数据支持或明确标注为假设。"""
 
-        response = await llm_service.generate(prompt, temperature=0.5, max_tokens=3000)
+        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=3500)
         
         try:
             json_start = response.find("{")
@@ -306,7 +337,6 @@ class TenYearAgent:
                 {"title": "竞争压力风险", "core_risk": "市场竞争强度持续上升",
                  "risk_analysis": f"随着市场吸引力提升，新进入者不断涌入，竞争格局日趋激烈。头部企业通过规模效应建立壁垒，中小企业面临利润率下降风险。",
                  "risk_indicators": ["行业集中度提升", "价格竞争加剧", "获客成本上升"],
-                 "trigger_scenarios": ["资本大量涌入加速竞争", "技术门槛降低带来新进入者"],
                  "enterprise_impact": f"可能导致{name}市场份额受限", "mitigation": "聚焦细分市场建立差异化"}
             ]
         }
@@ -333,17 +363,17 @@ class TenYearAgent:
 反面论据：{neg_args}
 
 输出JSON（根据实际情况智能决定各项数量，内容精炼突出重点，避免重复冗余）：
-{{
+{
   "credibility_level":"高/中/低",
   "credibility_score":75,
   "score_reasoning":"评分理由80字内",
-  "swot_analysis":{{"strengths":["优势"],"weaknesses":["劣势"],"opportunities":["机会"],"threats":["威胁"]}},
-  "key_variables":[{{"variable":"变量名","description":"说明30字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法30字内"}}],
-  "scenario_analysis":{{"optimistic_scenario":"乐观情景50字内","baseline_scenario":"基准情景50字内","pessimistic_scenario":"悲观情景50字内"}},
-  "action_suggestions":[{{"suggestion":"建议","rationale":"理由60字内","priority":"高/中/低","timeline":"时间"}}],
-  "risk_mitigation":[{{"risk":"风险","mitigation_strategy":"策略","contingency_plan":"预案"}}],
+  "swot_analysis":{"strengths":["优势"],"weaknesses":["劣势"],"opportunities":["机会"],"threats":["威胁"]},
+  "key_variables":[{"variable":"变量名","description":"说明30字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法30字内"}],
+  "scenario_analysis":{"optimistic_scenario":"乐观情景50字内","baseline_scenario":"基准情景50字内","pessimistic_scenario":"悲观情景50字内"},
+  "action_suggestions":[{"suggestion":"建议","rationale":"理由60字内","priority":"高/中/低","timeline":"时间"}],
+  "risk_mitigation":[{"risk":"风险","mitigation_strategy":"策略","contingency_plan":"预案"}],
   "summary":"总结250字内：整体评价+成功因素+风险提示+战略方向"
-}}
+}
 
 要求：关键变量、行动建议、风险应对等根据实际分析需要确定数量，不要为了凑数量而重复。"""
 
@@ -417,6 +447,8 @@ class TenYearAgent:
             sections.append(f"**核心观点：** {arg.get('core_point', '')}\n\n")
             if arg.get('argumentation'):
                 sections.append(f"**论证过程：**\n\n{arg.get('argumentation')}\n\n")
+            if arg.get('key_data'):
+                sections.append("**数据支持：**\n" + "\n".join(f"- {d}" for d in arg.get('key_data', [])) + "\n\n")
             if arg.get('logic_steps'):
                 sections.append("**逻辑推演步骤：**\n" + "\n".join(f"{j}. {s}" for j, s in enumerate(arg.get('logic_steps', []), 1)) + "\n\n")
             if arg.get('enterprise_implication'):
