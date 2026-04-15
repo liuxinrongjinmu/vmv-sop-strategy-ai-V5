@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 import asyncio
 import json
 import re
+import time
 from app.services.llm import llm_service
 from app.services.search import search_service
 
@@ -9,6 +10,8 @@ class TenYearAgent:
     """
     十年战略Agent
     负责赛道预判分析，生成正反论据和综合判断
+    
+    极速版：单次LLM调用生成完整报告，避免多步超时累积
     """
     
     def __init__(self):
@@ -16,535 +19,301 @@ class TenYearAgent:
     
     async def analyze(self, prediction: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行十年战略分析（优化版：并行化+降低tokens）
+        执行十年战略分析（极速版：单次LLM调用）
         """
-        import time
         start_time = time.time()
         
         session_info = context.get("session_info", {})
         chat_history = context.get("chat_history", [])
         uploaded_files = context.get("uploaded_files", [])
         
-        print("[TenYearAgent] 开始分析...")
-        print(f"[TenYearAgent] 预测内容: {prediction[:100]}...")
+        print(f"[TenYearAgent] 开始分析... 预测: {prediction[:80]}...")
         
-        print("[TenYearAgent] [并行] 提取关键洞察 + 分析企业背景 + 提取假设...")
-        key_insights_task = self._extract_key_insights(chat_history, uploaded_files, session_info)
-        enterprise_task = self._analyze_enterprise(session_info, {})
+        # 构建上下文信息
+        context_text = self._build_context(session_info, chat_history, uploaded_files)
         
-        step1_start = time.time()
-        key_insights, enterprise_analysis = await asyncio.gather(
-            key_insights_task, enterprise_task
-        )
-        step1_end = time.time()
-        print(f"[TenYearAgent] 并行步骤完成, 耗时: {step1_end - step1_start:.2f}秒")
+        # 单次LLM调用生成完整报告
+        print("[TenYearAgent] [核心] 单次LLM调用生成报告...")
+        step_start = time.time()
         
-        step2_start = time.time()
-        assumptions = await self._extract_assumptions(prediction, {}, enterprise_analysis)
-        step2_end = time.time()
-        print(f"[TenYearAgent] 提取假设完成: {len(assumptions)}个假设, 耗时: {step2_end - step2_start:.2f}秒")
-        
-        step3_start = time.time()
-        print("[TenYearAgent] 搜索证据...")
-        search_results = await self._search_evidence(assumptions, session_info, prediction)
-        step3_end = time.time()
-        print(f"[TenYearAgent] 证据搜索完成: 支持{len(search_results['supporting'])}条, 反对{len(search_results['opposing'])}条, 耗时: {step3_end - step3_start:.2f}秒")
-        
-        step4_start = time.time()
-        print("[TenYearAgent] 构建论据...")
-        arguments = await self._build_arguments(
-            prediction, assumptions, search_results, session_info, enterprise_analysis
-        )
-        step4_end = time.time()
-        print(f"[TenYearAgent] 论据构建完成: 正面{len(arguments.get('positive_arguments', []))}条, 反面{len(arguments.get('negative_arguments', []))}条, 耗时: {step4_end - step4_start:.2f}秒")
-        
-        step5_start = time.time()
-        print("[TenYearAgent] 生成综合判断...")
-        judgment = await self._generate_judgment(arguments, enterprise_analysis)
-        step5_end = time.time()
-        print(f"[TenYearAgent] 综合判断生成完成, 耗时: {step5_end - step5_start:.2f}秒")
-        
-        step6_start = time.time()
-        print("[TenYearAgent] 格式化报告...")
-        report = self._format_report(prediction, arguments, judgment)
-        step6_end = time.time()
-        print(f"[TenYearAgent] 报告生成完成: 内容长度{len(report['content'])}字符, 耗时: {step6_end - step6_start:.2f}秒")
-        
-        total_time = time.time() - start_time
-        print(f"[TenYearAgent] 总耗时: {total_time:.2f}秒")
-        
-        return report
+        try:
+            report_content = await self._generate_report_single_call(prediction, context_text)
+            step_end = time.time()
+            print(f"[TenYearAgent] 报告生成完成! 耗时: {step_end - step_start:.2f}秒")
+            
+            total_time = time.time() - start_time
+            print(f"[TenYearAgent] 总耗时: {total_time:.2f}秒")
+            
+            return {
+                "title": "十年战略预判分析报告",
+                "content": report_content,
+                "sources": []
+            }
+            
+        except Exception as e:
+            print(f"[TenYearAgent] 单次调用失败: {e}, 尝试简化版...")
+            # 备用方案：生成简化报告
+            simplified_content = await self._generate_simplified_report(prediction, context_text)
+            
+            total_time = time.time() - start_time
+            print(f"[TenYearAgent] 简化版报告生成完成! 总耗时: {total_time:.2f}秒")
+            
+            return {
+                "title": "十年战略预判分析报告",
+                "content": simplified_content,
+                "sources": []
+            }
     
-    async def _extract_key_insights(
-        self, 
-        chat_history: List[Dict], 
-        uploaded_files: List[Dict],
-        session_info: Dict
-    ) -> Dict[str, Any]:
-        """
-        从聊天历史和上传文件中提取关键洞察
-        """
-        insights = {
-            "chat_summary": "",
-            "file_insights": [],
-            "key_decisions": [],
-            "concerns": [],
-            "opportunities": [],
-            "mentioned_resources": [],
-            "mentioned_advantages": [],
-            "mentioned_challenges": []
-        }
+    def _build_context(self, session_info: Dict, chat_history: List[Dict], uploaded_files: List[Dict]) -> str:
+        """构建上下文信息文本"""
+        parts = []
         
-        if chat_history:
-            chat_text = "\n".join([
-                f"[{msg['role']}]: {msg['content']}" 
-                for msg in chat_history[-15:]
-            ])
-            
-            prompt = f"""从对话中提取关键信息（JSON格式）：
-
-{chat_text[:2000]}
-
-输出JSON：
-{{"summary":"100字总结","key_decisions":["决策1"],"concerns":["担忧1"],"opportunities":["机会1"],"mentioned_resources":["资源1"],"mentioned_advantages":["优势1"],"mentioned_challenges":["挑战1"]}}"""
-            
-            try:
-                response = await llm_service.generate(prompt, temperature=0.3, max_tokens=600)
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
-                chat_insights = json.loads(response[json_start:json_end])
-                insights["chat_summary"] = chat_insights.get("summary", "")
-                insights["key_decisions"] = chat_insights.get("key_decisions", [])
-                insights["concerns"] = chat_insights.get("concerns", [])
-                insights["opportunities"] = chat_insights.get("opportunities", [])
-                insights["mentioned_resources"] = chat_insights.get("mentioned_resources", [])
-                insights["mentioned_advantages"] = chat_insights.get("mentioned_advantages", [])
-                insights["mentioned_challenges"] = chat_insights.get("mentioned_challenges", [])
-            except Exception as e:
-                print(f"提取聊天洞察失败: {e}")
-        
-        for file_info in uploaded_files[:2]:
-            filename = file_info.get("filename", "")
-            content = file_info.get("content", "")
-            
-            if content:
-                prompt = f"""从文件中提取关键信息（JSON格式）：
-文件名：{filename}
-内容：{content[:1200]}
-
-输出JSON：{{"filename":"{filename}","main_topic":"主题","key_data":["数据1"]}}"""
-                
-                try:
-                    response = await llm_service.generate(prompt, temperature=0.3, max_tokens=400)
-                    json_start = response.find("{")
-                    json_end = response.rfind("}") + 1
-                    file_insight = json.loads(response[json_start:json_end])
-                    insights["file_insights"].append(file_insight)
-                except Exception as e:
-                    print(f"提取文件洞察失败: {e}")
-        
-        return insights
-    
-    async def _analyze_enterprise(self, session_info: Dict, key_insights: Dict) -> Dict[str, Any]:
-        """
-        分析企业背景（增强版：基于事实数据）
-        """
+        # 企业信息
         company_name = session_info.get('company_name', '未提供')
         industry = session_info.get('industry', '未提供')
         stage = session_info.get('stage', '未提供')
         track = session_info.get('selected_track', '未提供')
-        additional_info = session_info.get('additional_info', '未提供')
+        vision = session_info.get('vision', '')
+        mission = session_info.get('mission', '')
         
-        # 基于实际信息生成分析，避免臆测
-        prompt = f"""对企业进行分析（JSON格式），严格基于以下事实信息，不要臆测：
-- 企业：{company_name}
-- 行业：{industry}
-- 阶段：{stage}
-- 赛道：{track}
-- 补充信息：{additional_info[:200]}
+        parts.append(f"## 企业信息")
+        parts.append(f"- 企业名称：{company_name}")
+        parts.append(f"- 行业领域：{industry}")
+        parts.append(f"- 发展阶段：{stage}")
+        parts.append(f"- 选定赛道：{track}")
+        if vision:
+            parts.append(f"- 愿景：{vision[:100]}")
+        if mission:
+            parts.append(f"- 使命：{mission[:100]}")
+        
+        # 聊天历史摘要（取最后5条）
+        if chat_history:
+            parts.append(f"\n## 对话记录（最近）")
+            for msg in chat_history[-5:]:
+                role_label = "用户" if msg['role'] == 'user' else "顾问"
+                content_preview = msg['content'][:150] + ("..." if len(msg['content']) > 150 else "")
+                parts.append(f"- **{role_label}**：{content_preview}")
+        
+        # 上传文件信息
+        if uploaded_files:
+            parts.append(f"\n## 上传文件")
+            for f in uploaded_files[:2]:
+                filename = f.get('filename', '')
+                content_preview = f.get('content', '')[:200]
+                parts.append(f"- **{filename}**：{content_preview}...")
+        
+        return "\n".join(parts)
+    
+    async def _generate_report_single_call(self, prediction: str, context_text: str) -> str:
+        """单次LLM调用生成完整报告"""
+        
+        prompt = f"""你是一位资深战略咨询顾问。请基于以下信息，生成一份专业的十年战略预判分析报告。
 
-输出JSON，只包含基于上述信息的分析：
-{{"enterprise_profile":{{"name":"{company_name}","industry":"{industry}","stage":"{stage}","track":"{track}"}},"resource_summary":"80字资源概况（基于已知信息）","core_advantages":["基于已知信息的优势1","基于已知信息的优势2"],"core_disadvantages":["基于已知信息的劣势1","基于已知信息的劣势2"],"strategic_position":"50字定位（基于已知信息）"}}"""
+{context_text}
+
+## 用户预判
+{prediction}
+
+---
+
+请直接输出完整的Markdown格式报告，包含以下结构：
+
+# 十年战略预判分析报告
+
+## 一、预判摘要
+（100字内总结用户的核心预判）
+
+---
+
+## 二、正面论据分析
+
+### 2.1 论据标题
+**核心观点：** （20字内）
+
+**论证过程：**
+（150-200字论证，基于事实和数据，不要臆测）
+
+**数据支持：**
+- 数据点1
+- 数据点2
+
+**逻辑推演步骤：**
+1. 步骤一
+2. 步骤二
+3. 步骤三
+
+**对企业启示：** （50字内）
+
+### 2.2 第二个论据
+（同上结构）
+
+---
+
+## 三、反面论据分析
+
+### 3.1 风险标题
+**核心风险：** （20字内）
+
+**风险深度分析：**
+（150-200字分析，基于事实和数据，不要臆测）
+
+**风险指标：**
+- 指标1
+- 指标2
+
+**对企业影响：** （50字内）
+**应对措施：** （50字内）
+
+### 3.2 第二个风险
+（同上结构）
+
+---
+
+## 四、综合判断
+
+### 4.1 可信度评估
+**等级：** 高/中/低 | **评分：** XX/100
+**理由：** （60字内评分理由）
+
+### 4.2 SWOT分析
+- **优势：** ...
+- **劣势：** ...
+- **机会：** ...
+- **威胁：** ...
+
+### 4.3 关键变量识别
+**变量名** - 说明（影响：正向/负向/高/中/低）
+
+### 4.4 情景分析
+- **乐观：** （30字内）
+- **基准：** （30字内）
+- **悲观：** （30字内）
+
+### 4.5 行动建议
+**建议1:** ... | 优先级：高/中/低 | 时间：...
+
+### 4.6 风险应对策略
+**风险1:** ... | 应对：... | 预案：...
+
+### 4.7 综合判断总结
+（150字内总结：整体评价+成功因素+风险提示+战略方向）
+
+---
+
+**重要要求：**
+1. 所有结论必须基于上述事实信息，不得臆测企业业务模式
+2. 对关键结论必须提供具体数据支持或明确标注为假设
+3. 当信息不足时，明确标注为"基于有限信息的分析"
+4. 每个论据2-3个，内容深入但不冗余
+5. 直接输出Markdown内容，不要其他解释"""
+
+        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=4000)
+        
+        # 清理响应内容
+        content = response.strip()
+        
+        # 确保以标题开头
+        if not content.startswith("#"):
+            content = "# 十年战略预判分析报告\n\n" + content
+        
+        return content
+    
+    async def _generate_simplified_report(self, prediction: str, context_text: str) -> str:
+        """备用方案：生成简化版报告"""
+        
+        prompt = f"""基于以下信息生成简化的十年战略预判分析报告（Markdown格式）：
+
+{context_text}
+
+用户预判：{prediction}
+
+请包含：预判摘要、2个正面论据、2个反面论据、SWOT分析、3条行动建议、总结。
+每个部分精简到100字以内。直接输出报告内容。"""
 
         try:
-            response = await llm_service.generate(prompt, temperature=0.2, max_tokens=500)
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-            analysis = json.loads(response[json_start:json_end])
-            
-            # 确保输出包含必要字段
-            if "core_advantages" in analysis and not analysis["core_advantages"]:
-                analysis["core_advantages"] = ["需要更多企业信息"]
-            if "core_disadvantages" in analysis and not analysis["core_disadvantages"]:
-                analysis["core_disadvantages"] = ["需要更多企业信息"]
-                
-            return analysis
+            response = await llm_service.generate(prompt, temperature=0.5, max_tokens=2000)
+            return response.strip()
         except Exception as e:
-            print(f"企业分析失败: {e}")
-            return {
-                "enterprise_profile": {
-                    "name": company_name,
-                    "industry": industry,
-                    "stage": stage,
-                    "track": track
-                },
-                "resource_summary": "基于有限信息，企业资源状况需要进一步确认",
-                "core_advantages": ["需要更多企业信息"],
-                "core_disadvantages": ["需要更多企业信息"],
-                "strategic_position": "基于有限信息，战略定位需要进一步确认"
-            }
+            print(f"[TenYearAgent] 简化版也失败: {e}, 返回默认报告")
+            return self._get_default_report(prediction)
     
-    async def _extract_assumptions(self, prediction: str, key_insights: Dict, enterprise_analysis: Dict) -> List[str]:
-        """
-        从预判中提取关键假设
-        """
-        enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
-        
-        prompt = f"""从预判中提取4-5个关键假设（每行一个，不要编号）：
+    def _get_default_report(self, prediction: str) -> str:
+        """返回默认报告（兜底方案）"""
+        return f"""# 十年战略预判分析报告
 
-预判：{prediction[:300]}
-企业：{enterprise_profile.get('name', '')}（{enterprise_profile.get('track', '')}）
+## 一、预判摘要
+{prediction[:200]}
 
-关键假设："""
-        
-        response = await llm_service.generate(prompt, temperature=0.3, max_tokens=400)
-        assumptions = [line.strip() for line in response.split("\n") if line.strip()]
-        return assumptions[:5]
-    
-    async def _search_evidence(
-        self, 
-        assumptions: List[str], 
-        session_info: Dict,
-        prediction: str = ""
-    ) -> Dict[str, List]:
-        """
-        搜索支持/反对假设的证据（优化：减少搜索次数）
-        """
-        results = {"supporting": [], "opposing": []}
-        
-        track = session_info.get("selected_track", "")
-        industry = session_info.get("industry", "")
-        keywords = (prediction[:80] + " " + track + " " + industry).strip()
-        
-        try:
-            # 只执行一次搜索，同时获取支持和反对的信息
-            combined_query = f"{keywords} 市场分析 发展趋势 增长 风险 挑战 竞争"
-            print(f"[Search] 综合搜索: {combined_query[:60]}...")
-            combined_results = await search_service.search(combined_query, 8)
-            
-            # 简单分类结果
-            for r in combined_results:
-                if r.get("link", "").startswith("http"):
-                    # 根据标题和摘要简单分类
-                    text = (r.get("title", "") + " " + r.get("snippet", "")).lower()
-                    if any(word in text for word in ["增长", "趋势", "机遇", "发展", "市场"]):
-                        results["supporting"].append(r)
-                    else:
-                        results["opposing"].append(r)
-                        
-        except Exception as e:
-            print(f"搜索服务调用失败: {e}")
-        
-        seen_urls = set()
-        results["supporting"] = [r for r in results["supporting"] if r["link"] not in seen_urls and not seen_urls.add(r["link"])][:4]
-        seen_urls.clear()
-        results["opposing"] = [r for r in results["opposing"] if r["link"] not in seen_urls and not seen_urls.add(r["link"])][:4]
-        
-        print(f"[Search] 最终结果: 支持{len(results['supporting'])}条, 反对{len(results['opposing'])}条")
-        return results
-    
-    async def _build_arguments(
-        self,
-        prediction: str,
-        assumptions: List[str],
-        search_results: Dict,
-        session_info: Dict,
-        enterprise_analysis: Dict
-    ) -> Dict[str, List]:
-        """
-        构建正反论据（基于事实和数据）
-        """
-        supporting_text = self._format_search_results(search_results["supporting"][:4])
-        opposing_text = self._format_search_results(search_results["opposing"][:4])
-        
-        enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
-        name = enterprise_profile.get('name', '企业')
-        industry = enterprise_profile.get('industry', '未提供')
-        track = enterprise_profile.get('track', '未提供')
-        stage = enterprise_profile.get('stage', '未提供')
-        
-        advantages = enterprise_analysis.get('core_advantages', [])
-        disadvantages = enterprise_analysis.get('core_disadvantages', [])
-        
-        prompt = f"""作为战略咨询顾问，基于以下事实信息构建正反论据。
+---
 
-## 企业事实信息
-企业：{name}
-行业：{industry}
-阶段：{stage}
-赛道：{track}
-已知优势：{', '.join(advantages) or '需要更多信息'}
-已知劣势：{', '.join(disadvantages) or '需要更多信息'}
+## 二、正面论据分析
 
-## 预判
-{prediction[:300]}
+### 2.1 市场机遇
+**核心观点：** 市场需求持续增长
 
-## 关键假设
-{chr(10).join(f'- {a}' for a in assumptions[:4])}
+**论证过程：**
+根据用户预判，该赛道存在明显的市场机遇。随着技术进步和消费升级，相关市场规模预计将持续扩大。
 
-## 市场数据和参考信息
-支持性信息：
-{supporting_text or "无具体数据支持"}
+**逻辑推演步骤：**
+1. 市场需求识别
+2. 技术可行性验证
+3. 商业模式构建
 
-反对性信息：
-{opposing_text or "无具体数据支持"}
+**对企业启示：** 把握时机，快速进入市场
 
-## 重要要求
-1. 所有分析结论必须基于上述事实信息和数据，不得臆测
-2. 对关键结论必须提供数据支持或明确标注为假设
-3. 避免基于企业名称的臆测
-4. 当信息不足时，明确标注为"基于有限信息的分析"
+### 2.2 竞争优势
+**核心观点：** 差异化定位带来优势
 
-输出JSON（每个方向2-3个论据，内容深入）：
-{
-  "positive_arguments": [
-    {"title":"标题","core_point":"核心观点20字内","argumentation":"论证200-250字，包含数据支持","key_data":["数据1","数据2"],"logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}
-  ],
-  "negative_arguments": [
-    {"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析200-250字，包含数据支持","risk_indicators":["指标1","指标2"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}
-  ]
-}
+**论证过程：**
+通过差异化产品和服务，可以在竞争中建立独特优势。
 
-要求：严格基于事实信息，避免臆测，每个结论都要有数据支持或明确标注为假设。"""
+**对企业启示：** 强化核心竞争力
 
-        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=3000)
-        
-        try:
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-            json_str = re.sub(r'\s+', ' ', response[json_start:json_end])
-            arguments = json.loads(json_str)
-            
-            if "positive_arguments" not in arguments:
-                arguments["positive_arguments"] = []
-            if "negative_arguments" not in arguments:
-                arguments["negative_arguments"] = []
-            
-            if not arguments["positive_arguments"] or not arguments["negative_arguments"]:
-                default_args = self._get_default_arguments(name)
-                if not arguments["positive_arguments"]:
-                    arguments["positive_arguments"] = default_args["positive_arguments"]
-                if not arguments["negative_arguments"]:
-                    arguments["negative_arguments"] = default_args["negative_arguments"]
-            
-            return arguments
-        except Exception as e:
-            print(f"解析论据失败: {e}, 使用默认论据")
-            return self._get_default_arguments(name)
-    
-    def _get_default_arguments(self, name: str) -> Dict:
-        """返回默认论据结构"""
-        return {
-            "positive_arguments": [
-                {"title": "市场增长机遇", "core_point": "行业整体呈现增长态势",
-                 "argumentation": f"该赛道正处于成长期，市场需求持续扩大。技术进步和消费升级双重驱动下，行业规模稳步增长。政策支持力度加大，为行业发展提供了良好外部环境。建议{name}抓住这一战略机遇期。",
-                 "key_data": ["行业年复合增长率约15-20%", "市场规模持续扩大", "政策支持力度加大"],
-                 "logic_steps": ["市场需求增长", "政策环境优化", "供给能力提升", "企业发展空间打开"],
-                 "enterprise_implication": f"建议{name}抓住行业增长红利"},
-            ],
-            "negative_arguments": [
-                {"title": "竞争压力风险", "core_risk": "市场竞争强度持续上升",
-                 "risk_analysis": f"随着市场吸引力提升，新进入者不断涌入，竞争格局日趋激烈。头部企业通过规模效应建立壁垒，中小企业面临利润率下降风险。",
-                 "risk_indicators": ["行业集中度提升", "价格竞争加剧", "获客成本上升"],
-                 "enterprise_impact": f"可能导致{name}市场份额受限", "mitigation": "聚焦细分市场建立差异化"}
-            ]
-        }
-    
-    async def _generate_judgment(
-        self, 
-        arguments: Dict, 
-        enterprise_analysis: Dict
-    ) -> Dict[str, Any]:
-        """
-        生成综合判断（优化版）
-        """
-        enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
-        name = enterprise_profile.get('name', '')
-        
-        pos_args = json.dumps(arguments.get('positive_arguments', [])[:3], ensure_ascii=False)[:1200]
-        neg_args = json.dumps(arguments.get('negative_arguments', [])[:3], ensure_ascii=False)[:1200]
-        
-        prompt = f"""基于以下论据生成综合判断（JSON格式）：
+---
 
-企业：{name}（{enterprise_profile.get('track', '')}）
+## 三、反面论据分析
 
-正面论据：{pos_args}
-反面论据：{neg_args}
+### 3.1 市场风险
+**核心风险：** 市场不确定性
 
-输出JSON（内容深入，重点突出）：
-{
-  "credibility_level":"高/中/低",
-  "credibility_score":75,
-  "score_reasoning":"评分理由80字内",
-  "swot_analysis":{"strengths":["优势"],"weaknesses":["劣势"],"opportunities":["机会"],"threats":["威胁"]},
-  "key_variables":[{"variable":"变量名","description":"说明25字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法25字内"}],
-  "scenario_analysis":{"optimistic_scenario":"乐观情景40字内","baseline_scenario":"基准情景40字内","pessimistic_scenario":"悲观情景40字内"},
-  "action_suggestions":[{"suggestion":"建议","rationale":"理由50字内","priority":"高/中/低","timeline":"时间"}],
-  "risk_mitigation":[{"risk":"风险","mitigation_strategy":"策略","contingency_plan":"预案"}],
-  "summary":"总结200字内：整体评价+成功因素+风险提示+战略方向"
-}
+**风险深度分析：**
+市场环境变化快，竞争激烈，存在一定的不确定性。
 
-要求：内容深入，重点突出，不要重复。"""
+**应对措施：** 保持灵活，持续监控市场变化
 
-        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=1800)
-        
-        try:
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-            json_str = re.sub(r'\s+', ' ', response[json_start:json_end])
-            judgment = json.loads(json_str)
-            
-            required_fields = ["credibility_level", "credibility_score", "key_variables", "action_suggestions", "summary"]
-            for field in required_fields:
-                if field not in judgment:
-                    judgment[field] = self._get_default_judgment().get(field)
-            
-            return judgment
-        except Exception as e:
-            print(f"解析综合判断失败: {e}, 使用默认判断")
-            return self._get_default_judgment()
-    
-    def _get_default_judgment(self) -> Dict:
-        """返回默认综合判断"""
-        return {
-            "credibility_level": "中",
-            "credibility_score": 50,
-            "score_reasoning": "预判存在一定合理性，但面临不确定性因素",
-            "swot_analysis": {"strengths": ["发展潜力"], "weaknesses": ["资源有限"], "opportunities": ["市场增长"], "threats": ["竞争加剧"]},
-            "key_variables": [{"variable": "市场环境", "description": "宏观经济和行业变化", "impact": "双向", "impact_degree": "中", "monitoring_method": "定期行业报告分析"}],
-            "scenario_analysis": {"optimistic_scenario": "市场快速增长（概率30%）", "baseline_scenario": "市场平稳增长（概率50%）", "pessimistic_scenario": "竞争加剧（概率20%）"},
-            "action_suggestions": [{"suggestion": "深入市场调研", "rationale": "获取更全面的市场信息", "priority": "高", "timeline": "1-3个月"}],
-            "risk_mitigation": [{"risk": "竞争加剧", "mitigation_strategy": "差异化定位", "contingency_plan": "调整产品策略"}],
-            "summary": "预判具有一定合理性，建议结合实际情况制定灵活战略。关键成功因素包括产品差异化和市场拓展能力。主要风险来自市场竞争和资源约束。"
-        }
-    
-    def _format_report(
-        self,
-        prediction: str,
-        arguments: Dict,
-        judgment: Dict
-    ) -> Dict[str, Any]:
-        """
-        格式化最终报告
-        """
-        content = self._build_markdown_report(prediction, arguments, judgment)
-        
-        return {
-            "title": "十年战略预判分析报告",
-            "content": content,
-            "sources": []
-        }
-    
-    def _build_markdown_report(
-        self, 
-        prediction: str, 
-        arguments: Dict, 
-        judgment: Dict
-    ) -> str:
-        """
-        构建Markdown格式报告
-        """
-        sections = []
-        
-        sections.append("# 十年战略预判分析报告\n")
-        sections.append("## 一、预判摘要\n")
-        sections.append(f"{prediction}\n\n---\n\n")
-        
-        sections.append("## 二、正面论据分析\n")
-        for i, arg in enumerate(arguments.get("positive_arguments", []), 1):
-            sections.append(f"### 2.{i} {arg.get('title', '论据')}\n")
-            sections.append(f"**核心观点：** {arg.get('core_point', '')}\n\n")
-            if arg.get('argumentation'):
-                sections.append(f"**论证过程：**\n\n{arg.get('argumentation')}\n\n")
-            if arg.get('key_data'):
-                sections.append("**数据支持：**\n" + "\n".join(f"- {d}" for d in arg.get('key_data', [])) + "\n\n")
-            if arg.get('logic_steps'):
-                sections.append("**逻辑推演步骤：**\n" + "\n".join(f"{j}. {s}" for j, s in enumerate(arg.get('logic_steps', []), 1)) + "\n\n")
-            if arg.get('enterprise_implication'):
-                sections.append(f"**对企业启示：** {arg.get('enterprise_implication')}\n\n")
-        
-        sections.append("---\n\n")
-        
-        sections.append("## 三、反面论据分析\n")
-        for i, arg in enumerate(arguments.get("negative_arguments", []), 1):
-            sections.append(f"### 3.{i} {arg.get('title', '风险')}\n")
-            sections.append(f"**核心风险：** {arg.get('core_risk', '')}\n\n")
-            if arg.get('risk_analysis'):
-                sections.append(f"**风险深度分析：**\n\n{arg.get('risk_analysis')}\n\n")
-            if arg.get('risk_indicators'):
-                sections.append("**风险指标：**\n" + "\n".join(f"- {d}" for d in arg.get('risk_indicators', [])) + "\n\n")
-            if arg.get('enterprise_impact'):
-                sections.append(f"**对企业影响：** {arg.get('enterprise_impact')}\n")
-            if arg.get('mitigation'):
-                sections.append(f"**应对措施：** {arg.get('mitigation')}\n\n")
-        
-        sections.append("---\n\n")
-        
-        sections.append("## 四、综合判断\n")
-        sections.append(f"### 4.1 可信度评估\n**等级：** {judgment.get('credibility_level', '中')} | **评分：** {judgment.get('credibility_score', 50)}/100\n\n")
-        if judgment.get('score_reasoning'):
-            sections.append(f"**理由：** {judgment.get('score_reasoning')}\n\n")
-        
-        swot = judgment.get("swot_analysis", {})
-        if swot:
-            sections.append("### 4.2 SWOT分析\n\n")
-            sections.append(f"- **优势：** {', '.join(swot.get('strengths', []))}\n")
-            sections.append(f"- **劣势：** {', '.join(swot.get('weaknesses', []))}\n")
-            sections.append(f"- **机会：** {', '.join(swot.get('opportunities', []))}\n")
-            sections.append(f"- **威胁：** {', '.join(swot.get('threats', []))}\n\n")
-        
-        key_vars = judgment.get("key_variables", [])
-        if key_vars:
-            sections.append("### 4.3 关键变量识别\n\n")
-            for var in key_vars:
-                if isinstance(var, dict):
-                    sections.append(f"**{var.get('variable', '')}** - {var.get('description', '')}（影响：{var.get('impact', '')}/{var.get('impact_degree', '中')}）\n")
-            sections.append("\n")
-        
-        scenario = judgment.get("scenario_analysis", {})
-        if scenario:
-            sections.append("### 4.4 情景分析\n\n")
-            sections.append(f"- **乐观：** {scenario.get('optimistic_scenario', '')}\n")
-            sections.append(f"- **基准：** {scenario.get('baseline_scenario', '')}\n")
-            sections.append(f"- **悲观：** {scenario.get('pessimistic_scenario', '')}\n\n")
-        
-        suggestions = judgment.get("action_suggestions", [])
-        if suggestions:
-            sections.append("### 4.5 行动建议\n\n")
-            for i, sug in enumerate(suggestions, 1):
-                if isinstance(sug, dict):
-                    sections.append(f"**建议{i}: {sug.get('suggestion', '')}** - 理由：{sug.get('rationale', '')} | 优先级：{sug.get('priority', '')} | 时间：{sug.get('timeline', '')}\n\n")
-        
-        rm_list = judgment.get("risk_mitigation", [])
-        if rm_list:
-            sections.append("### 4.6 风险应对策略\n\n")
-            for i, rm in enumerate(rm_list, 1):
-                sections.append(f"**风险{i}: {rm.get('risk', '')}** - 应对：{rm.get('mitigation_strategy', '')} | 预案：{rm.get('contingency_plan', '')}\n\n")
-        
-        sections.append("### 4.7 综合判断总结\n\n")
-        sections.append(f"{judgment.get('summary', '')}\n")
-        
-        return "\n".join(sections)
-    
-    def _format_search_results(self, results: List[Dict]) -> str:
-        """格式化搜索结果（精简版）"""
-        formatted = []
-        for i, r in enumerate(results[:4], 1):
-            title = r.get('title', '')
-            snippet = r.get('snippet', '')[:100]
-            link = r.get('link', '')
-            if link.startswith("http"):
-                formatted.append(f"{i}. 【{title}】{snippet}")
-        return "\n".join(formatted) if formatted else ""
+### 3.2 资源约束
+**核心风险：** 资源有限制约发展
+
+**应对措施：** 合理配置资源，分阶段投入
+
+---
+
+## 四、综合判断
+
+### 4.1 可信度评估
+**等级：** 中 | **评分：** 65/100
+**理由：** 预判具有一定合理性，但需更多数据支持
+
+### 4.2 SWOT分析
+- **优势：** 市场机遇明显
+- **劣势：** 信息有限
+- **机会：** 行业增长趋势
+- **威胁：** 竞争加剧
+
+### 4.3 关键变量识别
+**市场需求** - 核心驱动力（影响：正向/高）
+
+### 4.4 情景分析
+- **乐观：** 快速占领市场份额
+- **基准：** 稳步发展
+- **悲观：** 面临激烈竞争
+
+### 4.5 行动建议
+**建议1:** 深入市场调研 | 优先级：高 | 时间：立即
+**建议2:** 明确差异化定位 | 优先级：高 | 时间：1个月内
+**建议3:** 制定阶段性目标 | 优先级：中 | 时间：3个月内
+
+### 4.6 综合判断总结
+预判具有参考价值，建议结合实际情况制定灵活战略。关键成功因素包括市场洞察力、执行力和资源整合能力。主要风险来自市场竞争和外部环境变化。"""
 
 ten_year_agent = TenYearAgent()
