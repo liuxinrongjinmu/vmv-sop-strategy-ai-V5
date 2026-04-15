@@ -10,7 +10,7 @@ export const reportService = {
       throw new Error('未获取到任务ID')
     }
     
-    const maxAttempts = 120
+    const maxAttempts = 240  // 延长到12分钟
     const interval = 3000
     
     for (let i = 0; i < maxAttempts; i++) {

@@ -26,6 +26,11 @@ class SearchService:
             print("[Search] Tavily API密钥未配置")
             return []
         
+        # 快速返回空结果，避免超时
+        if len(query) > 200:
+            print("[Search] 搜索词过长，返回空结果")
+            return []
+        
         return await self._search_tavily(query, num_results)
     
     async def _search_tavily(self, query: str, num_results: int) -> List[Dict]:
@@ -33,7 +38,8 @@ class SearchService:
         使用Tavily搜索
         """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            # 缩短超时时间
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
                     "https://api.tavily.com/search",
                     headers={
@@ -42,16 +48,17 @@ class SearchService:
                     },
                     json={
                         "query": query,
-                        "max_results": num_results,
+                        "max_results": min(num_results, 5),  # 最多5条结果
                         "include_answer": False,
-                        "include_raw_content": False
+                        "include_raw_content": False,
+                        "search_depth": "basic"  # 使用快速搜索
                     }
                 )
                 response.raise_for_status()
                 data = response.json()
                 
                 results = []
-                for item in data.get("results", []):
+                for item in data.get("results", [])[:3]:  # 只取前3条
                     results.append({
                         "title": item.get("title", ""),
                         "link": item.get("url", ""),

@@ -18,6 +18,9 @@ class TenYearAgent:
         """
         执行十年战略分析（优化版：并行化+降低tokens）
         """
+        import time
+        start_time = time.time()
+        
         session_info = context.get("session_info", {})
         chat_history = context.get("chat_history", [])
         uploaded_files = context.get("uploaded_files", [])
@@ -29,30 +32,46 @@ class TenYearAgent:
         key_insights_task = self._extract_key_insights(chat_history, uploaded_files, session_info)
         enterprise_task = self._analyze_enterprise(session_info, {})
         
+        step1_start = time.time()
         key_insights, enterprise_analysis = await asyncio.gather(
             key_insights_task, enterprise_task
         )
+        step1_end = time.time()
+        print(f"[TenYearAgent] 并行步骤完成, 耗时: {step1_end - step1_start:.2f}秒")
         
+        step2_start = time.time()
         assumptions = await self._extract_assumptions(prediction, {}, enterprise_analysis)
-        print(f"[TenYearAgent] 并行步骤完成: {len(assumptions)}个假设")
+        step2_end = time.time()
+        print(f"[TenYearAgent] 提取假设完成: {len(assumptions)}个假设, 耗时: {step2_end - step2_start:.2f}秒")
         
+        step3_start = time.time()
         print("[TenYearAgent] 搜索证据...")
         search_results = await self._search_evidence(assumptions, session_info, prediction)
-        print(f"[TenYearAgent] 证据搜索完成: 支持{len(search_results['supporting'])}条, 反对{len(search_results['opposing'])}条")
+        step3_end = time.time()
+        print(f"[TenYearAgent] 证据搜索完成: 支持{len(search_results['supporting'])}条, 反对{len(search_results['opposing'])}条, 耗时: {step3_end - step3_start:.2f}秒")
         
+        step4_start = time.time()
         print("[TenYearAgent] 构建论据...")
         arguments = await self._build_arguments(
             prediction, assumptions, search_results, session_info, enterprise_analysis
         )
-        print(f"[TenYearAgent] 论据构建完成: 正面{len(arguments.get('positive_arguments', []))}条, 反面{len(arguments.get('negative_arguments', []))}条")
+        step4_end = time.time()
+        print(f"[TenYearAgent] 论据构建完成: 正面{len(arguments.get('positive_arguments', []))}条, 反面{len(arguments.get('negative_arguments', []))}条, 耗时: {step4_end - step4_start:.2f}秒")
         
+        step5_start = time.time()
         print("[TenYearAgent] 生成综合判断...")
         judgment = await self._generate_judgment(arguments, enterprise_analysis)
-        print(f"[TenYearAgent] 综合判断生成完成")
+        step5_end = time.time()
+        print(f"[TenYearAgent] 综合判断生成完成, 耗时: {step5_end - step5_start:.2f}秒")
         
+        step6_start = time.time()
         print("[TenYearAgent] 格式化报告...")
         report = self._format_report(prediction, arguments, judgment)
-        print(f"[TenYearAgent] 报告生成完成: 内容长度{len(report['content'])}字符")
+        step6_end = time.time()
+        print(f"[TenYearAgent] 报告生成完成: 内容长度{len(report['content'])}字符, 耗时: {step6_end - step6_start:.2f}秒")
+        
+        total_time = time.time() - start_time
+        print(f"[TenYearAgent] 总耗时: {total_time:.2f}秒")
         
         return report
     
