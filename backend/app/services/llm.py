@@ -35,7 +35,7 @@ class LLMService:
         Returns:
             生成的文本
         """
-        providers = [provider] if provider else [self.primary_provider, self.fallback_provider]
+        providers = [provider] if provider else [self.primary_provider]  # 只尝试主提供商
         
         print(f"[LLM] 开始生成文本，使用提供商: {providers}")
         print(f"[LLM] 提示词长度: {len(prompt)} 字符")
@@ -59,13 +59,13 @@ class LLMService:
                 errors.append(error_msg)
                 continue
         
-        raise Exception(f"所有模型调用失败: {'; '.join(errors)}")
+        raise Exception(f"模型调用失败: {'; '.join(errors)}")
     
     async def _call_zhipu(self, prompt: str, temperature: float, max_tokens: int) -> str:
         """
         调用智谱GLM-4 API
         """
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:  # 减少超时到60秒
             response = await client.post(
                 "https://open.bigmodel.cn/api/paas/v4/chat/completions",
                 headers={
@@ -87,7 +87,7 @@ class LLMService:
         """
         调用千问Max API
         """
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:  # 减少超时到60秒
             response = await client.post(
                 "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation",
                 headers={
