@@ -264,8 +264,8 @@ class TenYearAgent:
         """
         构建正反论据（基于事实和数据）
         """
-        supporting_text = self._format_search_results(search_results["supporting"][:3])
-        opposing_text = self._format_search_results(search_results["opposing"][:3])
+        supporting_text = self._format_search_results(search_results["supporting"][:4])
+        opposing_text = self._format_search_results(search_results["opposing"][:4])
         
         enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
         name = enterprise_profile.get('name', '企业')
@@ -287,10 +287,10 @@ class TenYearAgent:
 已知劣势：{', '.join(disadvantages) or '需要更多信息'}
 
 ## 预判
-{prediction[:200]}
+{prediction[:300]}
 
 ## 关键假设
-{chr(10).join(f'- {a}' for a in assumptions[:3])}
+{chr(10).join(f'- {a}' for a in assumptions[:4])}
 
 ## 市场数据和参考信息
 支持性信息：
@@ -305,19 +305,19 @@ class TenYearAgent:
 3. 避免基于企业名称的臆测
 4. 当信息不足时，明确标注为"基于有限信息的分析"
 
-输出JSON（每个方向1-2个论据，内容精炼）：
+输出JSON（每个方向2-3个论据，内容深入）：
 {
   "positive_arguments": [
-    {"title":"标题","core_point":"核心观点20字内","argumentation":"论证150-200字，包含数据支持","key_data":["数据1","数据2"],"logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}
+    {"title":"标题","core_point":"核心观点20字内","argumentation":"论证200-250字，包含数据支持","key_data":["数据1","数据2"],"logic_steps":["步骤1","步骤2","步骤3"],"enterprise_implication":"企业启示60字内"}
   ],
   "negative_arguments": [
-    {"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析150-200字，包含数据支持","risk_indicators":["指标1","指标2"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}
+    {"title":"风险标题","core_risk":"核心风险20字内","risk_analysis":"风险分析200-250字，包含数据支持","risk_indicators":["指标1","指标2"],"enterprise_impact":"企业影响60字内","mitigation":"应对措施60字内"}
   ]
 }
 
 要求：严格基于事实信息，避免臆测，每个结论都要有数据支持或明确标注为假设。"""
 
-        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=2500)
+        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=3000)
         
         try:
             json_start = response.find("{")
@@ -371,8 +371,8 @@ class TenYearAgent:
         enterprise_profile = enterprise_analysis.get("enterprise_profile", {})
         name = enterprise_profile.get('name', '')
         
-        pos_args = json.dumps(arguments.get('positive_arguments', [])[:2], ensure_ascii=False)[:1000]
-        neg_args = json.dumps(arguments.get('negative_arguments', [])[:2], ensure_ascii=False)[:1000]
+        pos_args = json.dumps(arguments.get('positive_arguments', [])[:3], ensure_ascii=False)[:1200]
+        neg_args = json.dumps(arguments.get('negative_arguments', [])[:3], ensure_ascii=False)[:1200]
         
         prompt = f"""基于以下论据生成综合判断（JSON格式）：
 
@@ -381,22 +381,22 @@ class TenYearAgent:
 正面论据：{pos_args}
 反面论据：{neg_args}
 
-输出JSON（内容精炼，重点突出）：
+输出JSON（内容深入，重点突出）：
 {
   "credibility_level":"高/中/低",
   "credibility_score":75,
-  "score_reasoning":"评分理由60字内",
+  "score_reasoning":"评分理由80字内",
   "swot_analysis":{"strengths":["优势"],"weaknesses":["劣势"],"opportunities":["机会"],"threats":["威胁"]},
-  "key_variables":[{"variable":"变量名","description":"说明20字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法20字内"}],
-  "scenario_analysis":{"optimistic_scenario":"乐观情景30字内","baseline_scenario":"基准情景30字内","pessimistic_scenario":"悲观情景30字内"},
-  "action_suggestions":[{"suggestion":"建议","rationale":"理由40字内","priority":"高/中/低","timeline":"时间"}],
+  "key_variables":[{"variable":"变量名","description":"说明25字内","impact":"正向/负向","impact_degree":"高/中/低","monitoring_method":"监测方法25字内"}],
+  "scenario_analysis":{"optimistic_scenario":"乐观情景40字内","baseline_scenario":"基准情景40字内","pessimistic_scenario":"悲观情景40字内"},
+  "action_suggestions":[{"suggestion":"建议","rationale":"理由50字内","priority":"高/中/低","timeline":"时间"}],
   "risk_mitigation":[{"risk":"风险","mitigation_strategy":"策略","contingency_plan":"预案"}],
-  "summary":"总结150字内：整体评价+成功因素+风险提示+战略方向"
+  "summary":"总结200字内：整体评价+成功因素+风险提示+战略方向"
 }
 
-要求：内容精炼，重点突出，不要重复。"""
+要求：内容深入，重点突出，不要重复。"""
 
-        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=1500)
+        response = await llm_service.generate(prompt, temperature=0.4, max_tokens=1800)
         
         try:
             json_start = response.find("{")

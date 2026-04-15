@@ -58,7 +58,7 @@ class SearchService:
                 data = response.json()
                 
                 results = []
-                for item in data.get("results", [])[:3]:  # 只取前3条
+                for item in data.get("results", [])[:5]:  # 恢复到5条结果
                     results.append({
                         "title": item.get("title", ""),
                         "link": item.get("url", ""),
