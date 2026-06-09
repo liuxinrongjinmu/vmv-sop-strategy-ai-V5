@@ -1,3 +1,15 @@
+export interface MessageMetadata {
+  type?: 'chat' | 'report' | 'stage_transition'
+  report_id?: number
+  sources?: SourceItem[]
+}
+
+export interface SourceItem {
+  title: string
+  url: string
+  snippet: string
+}
+
 export interface MessageCreate {
   session_id: string
   content: string
@@ -10,7 +22,7 @@ export interface MessageResponse {
   content: string
   stage: number
   created_at: string
-  metadata?: any
+  metadata?: MessageMetadata
 }
 
 export interface FileUploadResponse {

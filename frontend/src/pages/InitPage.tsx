@@ -20,23 +20,31 @@ const teamSizes = [
 ]
 
 const STORAGE_KEY = 'vmv_sop_init_data'
+const STORAGE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000 // 7天过期
+
+interface StorageData {
+  formData: typeof formDataInitial
+  savedAt: number
+}
+
+const formDataInitial = {
+  company_name: '',
+  industry: '',
+  current_size: '',
+  stage: '',
+  core_business: '',
+  selected_track: '',
+  vision: '',
+  mission: '',
+  values: [''],
+  additional_info: ''
+}
 
 const InitPage: React.FC = () => {
   const navigate = useNavigate()
   const { setSessionId, setSessionInfo } = useAppStore()
   
-  const [formData, setFormData] = useState({
-    company_name: '',
-    industry: '',
-    current_size: '',
-    stage: '',
-    core_business: '',
-    selected_track: '',
-    vision: '',
-    mission: '',
-    values: [''],
-    additional_info: ''
-  })
+  const [formData, setFormData] = useState(formDataInitial)
   
   const [loading, setLoading] = useState(false)
 
@@ -45,14 +53,21 @@ const InitPage: React.FC = () => {
       try {
         const savedData = localStorage.getItem(STORAGE_KEY)
         if (savedData) {
-          const parsedData = JSON.parse(savedData)
-          setFormData(prev => ({
-            ...prev,
-            ...parsedData
-          }))
+          const parsed: StorageData = JSON.parse(savedData)
+          // 检查是否过期
+          if (parsed.savedAt && Date.now() - parsed.savedAt < STORAGE_EXPIRY_MS) {
+            setFormData(prev => ({
+              ...prev,
+              ...parsed.formData
+            }))
+          } else {
+            // 过期则清除
+            localStorage.removeItem(STORAGE_KEY)
+          }
         }
       } catch (error) {
         console.error('加载历史数据失败:', error)
+        localStorage.removeItem(STORAGE_KEY)
       }
     }
     loadHistory()
@@ -60,7 +75,11 @@ const InitPage: React.FC = () => {
 
   const saveToStorage = (data: any) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      const storageData: StorageData = {
+        formData: data,
+        savedAt: Date.now()
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData))
     } catch (error) {
       console.error('保存数据失败:', error)
     }

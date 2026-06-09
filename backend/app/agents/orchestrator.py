@@ -1,6 +1,9 @@
 from typing import Dict, Any, Optional, List
+import logging
 from app.services.llm import llm_service
 from app.agents.ten_year import ten_year_agent
+
+logger = logging.getLogger(__name__)
 
 class OrchestratorAgent:
     """
@@ -19,13 +22,17 @@ class OrchestratorAgent:
         uploaded_files: List[Dict] = None,
         chat_history: List[Dict] = None
     ) -> Dict[str, Any]:
-        
+        """
+        处理用户消息
+        根据意图分类路由到不同的处理逻辑
+        """
         if uploaded_files is None:
             uploaded_files = []
         if chat_history is None:
             chat_history = []
-            
+        
         intent = await self._detect_intent(message, current_stage)
+        logger.info(f"意图检测: message='{message[:50]}...', intent={intent}, stage={current_stage}")
         
         if intent == "generate_report":
             return await self._handle_report_generation(message, session_info, uploaded_files)
@@ -37,21 +44,68 @@ class OrchestratorAgent:
     async def _detect_intent(self, message: str, current_stage: int) -> str:
         """
         检测用户意图
+        优先使用关键词快速匹配，模糊场景使用LLM辅助判断
         
         Returns:
             generate_report, stage_transition, general_chat
         """
-        message_lower = message.lower()
+        message_stripped = message.strip()
         
-        report_keywords = ["生成报告", "开始分析", "分析报告", "十年战略分析"]
-        if any(kw in message_lower for kw in report_keywords):
+        # 1. 强信号关键词：直接判定
+        strong_report_keywords = ["生成报告", "开始分析", "分析报告", "十年战略分析", "生成分析报告"]
+        if any(kw in message_stripped for kw in strong_report_keywords):
             return "generate_report"
         
-        transition_keywords = ["信息完整", "没有其他问题", "预判完整", "进入下一阶段", "确认完成", "没问题了"]
-        if any(kw in message_lower for kw in transition_keywords):
+        strong_transition_keywords = ["信息完整", "没有其他问题", "预判完整", "进入下一阶段", "确认完成", "没问题了"]
+        if any(kw in message_stripped for kw in strong_transition_keywords):
             return "stage_transition"
         
+        # 2. 短消息（<=15字）不太可能是报告生成意图
+        if len(message_stripped) <= 15:
+            return "general_chat"
+        
+        # 3. 长消息 + 处于预判采集阶段：可能是用户在写预判
+        # 使用LLM辅助判断，避免误判
+        if len(message_stripped) > 50 and current_stage >= 2:
+            try:
+                intent = await self._llm_intent_check(message_stripped, current_stage)
+                if intent:
+                    return intent
+            except Exception as e:
+                logger.warning(f"LLM意图检测失败，回退到关键词匹配: {e}")
+        
         return "general_chat"
+    
+    async def _llm_intent_check(self, message: str, current_stage: int) -> Optional[str]:
+        """
+        使用LLM辅助判断用户意图
+        返回 None 表示无法确定，回退到默认逻辑
+        """
+        prompt = f"""判断用户消息的意图类别，只返回类别代码。
+
+当前对话阶段: 第{current_stage}阶段（1=信息补充, 2=自由提问, 3=预判采集, 4=报告生成）
+
+用户消息:
+{message[:500]}
+
+意图类别:
+- REPORT: 用户在表达对赛道/行业的未来预判、预测、展望，希望生成分析报告
+- TRANSITION: 用户表示当前阶段的信息已完整，想进入下一阶段
+- CHAT: 普通对话、提问、补充信息、讨论
+
+只返回一个词: REPORT / TRANSITION / CHAT"""
+
+        response = await llm_service.generate(prompt, temperature=0.1, max_tokens=10, provider=None)
+        result = response.strip().upper()
+        
+        if "REPORT" in result:
+            return "generate_report"
+        elif "TRANSITION" in result:
+            return "stage_transition"
+        elif "CHAT" in result:
+            return "general_chat"
+        
+        return None
     
     async def _handle_report_generation(self, prediction: str, session_info: Dict, uploaded_files: List[Dict] = None) -> Dict[str, Any]:
         """
@@ -97,7 +151,9 @@ class OrchestratorAgent:
         uploaded_files: List[Dict] = None,
         chat_history: List[Dict] = None
     ) -> Dict[str, Any]:
-        
+        """
+        处理普通对话
+        """
         context = self._build_context(session_info, current_stage)
         
         history_text = ""

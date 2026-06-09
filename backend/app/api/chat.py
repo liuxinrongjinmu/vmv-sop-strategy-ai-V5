@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional
 import uuid
 import logging
 
@@ -94,12 +94,17 @@ async def send_message(
         session.current_stage = agent_result["stage"]
         await db.commit()
     
+    extra_data = {
+        "type": agent_result.get("type"),
+        "sources": agent_result.get("sources")
+    }
+    
     ai_message = Message(
         session_id=session.id,
         role="assistant",
         content=agent_result["content"],
         stage=session.current_stage,
-        extra_data={"type": agent_result.get("type"), "sources": agent_result.get("sources")}
+        extra_data=extra_data
     )
     db.add(ai_message)
     await db.commit()
@@ -110,7 +115,8 @@ async def send_message(
         role=ai_message.role,
         content=ai_message.content,
         stage=ai_message.stage,
-        created_at=ai_message.created_at
+        created_at=ai_message.created_at,
+        metadata=extra_data
     )
 
 @router.get("/history/{session_id}", response_model=List[MessageResponse])
@@ -144,7 +150,8 @@ async def get_chat_history(
             role=m.role,
             content=m.content,
             stage=m.stage,
-            created_at=m.created_at
+            created_at=m.created_at,
+            metadata=m.extra_data
         )
         for m in messages
     ]

@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { chatService } from '../services/chat'
 import { reportService } from '../services/report'
 import { useAppStore } from '../stores/appStore'
-import { MessageResponse } from '../types/message'
+import { MessageResponse, MessageMetadata } from '../types/message'
 import './ChatPage.css'
 
 const stageNames = ['信息补充', '自由提问', '预判采集', '报告生成', '报告反馈']
@@ -98,25 +98,25 @@ const ChatPage: React.FC = () => {
     setIsLoading(true)
     
     try {
-      const isPrediction = userMessage.length > 50 || 
-        userMessage.includes('预判') || 
-        userMessage.includes('预测') || 
-        userMessage.includes('我认为') ||
-        userMessage.includes('前景') ||
-        userMessage.includes('趋势') ||
-        userMessage.includes('增长')
+      // 统一由后端 Agent 判断意图（普通对话/阶段转换/生成报告）
+      const response = await chatService.send({
+        session_id: sessionId,
+        content: userMessage
+      })
+      addMessage(response)
       
-      if (isPrediction && currentStage <= 3) {
+      // 根据后端返回的类型处理
+      const metadata = response.metadata
+      if (metadata?.type === 'report') {
+        // 后端判定为报告生成意图，触发异步报告生成
         setCurrentStage(4)
-        sendSystemMessage('感谢您的分享，我将基于您提供的所有信息生成一份详细的分析报告。请稍候...')
+        sendSystemMessage('正在为您生成十年战略分析报告，请稍候...')
         
         try {
           const reportResponse = await reportService.generate({
             session_id: sessionId,
             prediction: userMessage
           })
-          
-          console.log('报告生成成功:', reportResponse)
           
           addMessage({
             id: Date.now(),
@@ -139,19 +139,8 @@ const ChatPage: React.FC = () => {
           sendSystemMessage('报告生成失败: ' + errorMsg)
           setCurrentStage(3)
         }
-      } else if (userMessage.includes('不需要') || userMessage.includes('不用') || userMessage.includes('没有') || userMessage.includes('满意')) {
-        if (currentStage === 5) {
-          sendSystemMessage('非常感谢您的参与，希望这份分析报告对您有所帮助。如果后续有任何问题，随时可以再次咨询。')
-        } else {
-          sendSystemMessage('好的，如果您准备好了预判，请直接分享您对赛道的看法和预测。')
-        }
       } else {
-        const response = await chatService.send({
-          session_id: sessionId,
-          content: userMessage
-        })
-        addMessage(response)
-        
+        // 普通对话或阶段转换
         if (response.stage) {
           setCurrentStage(response.stage)
         }
@@ -246,7 +235,7 @@ const ChatPage: React.FC = () => {
 
   const renderMessage = (message: MessageResponse) => {
     const isUser = message.role === 'user'
-    const metadata = message.metadata as any
+    const metadata = message.metadata
 
     return (
       <div key={message.id} className={`message-item ${isUser ? 'user' : 'assistant'} fade-in`}>
@@ -430,17 +419,14 @@ const ChatPage: React.FC = () => {
                 </svg>
               </button>
             ) : (
-              <button 
-                className="voice-circle-btn"
-                disabled={isLoading}
-                title="语音输入"
-              >
+              <div className="voice-circle-btn" title="语音输入（即将支持）">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="11 5 6 9 2 9 6 13 2 13 6 17 11 13"/>
-                  <path d="M19 15V9"/>
-                  <line x1="22" y1="12" x2="16" y2="12"/>
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
                 </svg>
-              </button>
+              </div>
             )}
           </div>
         </div>

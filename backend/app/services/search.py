@@ -1,6 +1,9 @@
 from typing import List, Dict
 import httpx
 from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SearchService:
     """
@@ -23,12 +26,12 @@ class SearchService:
             格式化的搜索结果列表
         """
         if not self.tavily_api_key:
-            print("[Search] Tavily API密钥未配置")
+            logger.warning("Tavily API密钥未配置")
             return []
         
         # 快速返回空结果，避免超时
         if len(query) > 200:
-            print("[Search] 搜索词过长，返回空结果")
+            logger.warning("搜索词过长，返回空结果")
             return []
         
         return await self._search_tavily(query, num_results)
@@ -58,17 +61,17 @@ class SearchService:
                 data = response.json()
                 
                 results = []
-                for item in data.get("results", [])[:5]:  # 恢复到5条结果
+                for item in data.get("results", [])[:5]:
                     results.append({
                         "title": item.get("title", ""),
                         "link": item.get("url", ""),
                         "snippet": item.get("content", "")
                     })
                 
-                print(f"[Search] Tavily搜索成功，返回{len(results)}条结果")
+                logger.info(f"Tavily搜索成功，返回{len(results)}条结果")
                 return results
         except Exception as e:
-            print(f"[Search] Tavily搜索失败: {e}")
+            logger.error(f"Tavily搜索失败: {e}")
             return []
 
 search_service = SearchService()

@@ -62,6 +62,7 @@ class MessageResponse(BaseModel):
     content: str
     stage: int
     created_at: datetime
+    metadata: Optional[dict] = None
     
     class Config:
         from_attributes = True

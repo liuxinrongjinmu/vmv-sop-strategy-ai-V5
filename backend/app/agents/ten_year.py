@@ -3,8 +3,11 @@ import asyncio
 import json
 import re
 import time
+import logging
 from app.services.llm import llm_service
 from app.services.search import search_service
+
+logger = logging.getLogger(__name__)
 
 class TenYearAgent:
     """
@@ -19,7 +22,8 @@ class TenYearAgent:
     
     async def analyze(self, prediction: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行十年战略分析（极速版：单次LLM调用）
+        执行十年战略分析
+        流程：搜索外部数据 → 单次LLM调用生成报告
         """
         start_time = time.time()
         
@@ -27,41 +31,48 @@ class TenYearAgent:
         chat_history = context.get("chat_history", [])
         uploaded_files = context.get("uploaded_files", [])
         
-        print(f"[TenYearAgent] 开始分析... 预测: {prediction[:80]}...")
+        logger.info(f"开始分析... 预测: {prediction[:80]}...")
         
         # 构建上下文信息
         context_text = self._build_context(session_info, chat_history, uploaded_files)
         
+        # 搜索外部数据支撑
+        search_results, search_context = await self._search_evidence(prediction, session_info)
+        
         # 单次LLM调用生成完整报告
-        print("[TenYearAgent] [核心] 单次LLM调用生成报告...")
+        logger.info("单次LLM调用生成报告...")
         step_start = time.time()
         
         try:
-            report_content = await self._generate_report_single_call(prediction, context_text)
+            report_content = await self._generate_report_single_call(
+                prediction, context_text, search_context
+            )
             step_end = time.time()
-            print(f"[TenYearAgent] 报告生成完成! 耗时: {step_end - step_start:.2f}秒")
+            logger.info(f"报告生成完成! 耗时: {step_end - step_start:.2f}秒")
             
             total_time = time.time() - start_time
-            print(f"[TenYearAgent] 总耗时: {total_time:.2f}秒")
+            logger.info(f"总耗时: {total_time:.2f}秒")
             
             return {
                 "title": "十年战略预判分析报告",
                 "content": report_content,
-                "sources": []
+                "sources": search_results
             }
             
         except Exception as e:
-            print(f"[TenYearAgent] 单次调用失败: {e}, 尝试简化版...")
+            logger.error(f"单次调用失败: {e}, 尝试简化版...")
             # 备用方案：生成简化报告
-            simplified_content = await self._generate_simplified_report(prediction, context_text)
+            simplified_content = await self._generate_simplified_report(
+                prediction, context_text, search_context
+            )
             
             total_time = time.time() - start_time
-            print(f"[TenYearAgent] 简化版报告生成完成! 总耗时: {total_time:.2f}秒")
+            logger.info(f"简化版报告生成完成! 总耗时: {total_time:.2f}秒")
             
             return {
                 "title": "十年战略预判分析报告",
                 "content": simplified_content,
-                "sources": []
+                "sources": search_results
             }
     
     def _build_context(self, session_info: Dict, chat_history: List[Dict], uploaded_files: List[Dict]) -> str:
@@ -104,13 +115,88 @@ class TenYearAgent:
         
         return "\n".join(parts)
     
-    async def _generate_report_single_call(self, prediction: str, context_text: str) -> str:
+    async def _search_evidence(
+        self, prediction: str, session_info: Dict
+    ) -> tuple:
+        """
+        搜索外部数据支撑论据
+        返回 (sources列表, 搜索上下文文本)
+        """
+        track = session_info.get("selected_track", "")
+        industry = session_info.get("industry", "")
+        
+        # 构建搜索查询
+        search_queries = []
+        if track:
+            search_queries.append(f"{track} 行业趋势 市场规模")
+        if industry and industry != track:
+            search_queries.append(f"{industry} 发展前景 竞争格局")
+        
+        # 从用户预判中提取关键主题进行搜索
+        keywords = re.findall(r'[\u4e00-\u9fa5]{2,6}(?:市场|行业|技术|趋势|增长|发展|竞争)', prediction)
+        for kw in keywords[:2]:
+            search_queries.append(kw)
+        
+        all_results = []
+        for query in search_queries[:3]:
+            try:
+                results = await search_service.search(query, num_results=3)
+                all_results.extend(results)
+                logger.info(f"搜索 '{query}' 返回 {len(results)} 条结果")
+            except Exception as e:
+                logger.warning(f"搜索 '{query}' 失败: {e}")
+        
+        # 去重
+        seen_urls = set()
+        unique_results = []
+        for r in all_results:
+            url = r.get("link", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_results.append(r)
+        
+        # 构建搜索上下文
+        search_context = ""
+        if unique_results:
+            parts = ["\n## 搜索到的外部数据（请在报告中引用这些数据来支撑论据）\n"]
+            for i, r in enumerate(unique_results[:8], 1):
+                title = r.get("title", "")
+                snippet = r.get("snippet", "")
+                link = r.get("link", "")
+                parts.append(f"### 来源 {i}: {title}")
+                parts.append(f"摘要: {snippet}")
+                parts.append(f"链接: {link}\n")
+            search_context = "\n".join(parts)
+        
+        # 格式化 sources
+        sources = [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("link", ""),
+                "snippet": r.get("snippet", "")
+            }
+            for r in unique_results[:8]
+        ]
+        
+        return sources, search_context
+    
+    async def _generate_report_single_call(
+        self, prediction: str, context_text: str, search_context: str = ""
+    ) -> str:
         """单次LLM调用生成完整报告（深度版）"""
+        
+        search_section = ""
+        if search_context:
+            search_section = f"""
+{search_context}
+
+**重要：** 请在正面论据和反面论据的分析中，积极引用上述搜索到的外部数据来支撑你的论证。引用时标注"据外部数据"或"根据行业报告"。
+"""
         
         prompt = f"""你是一位拥有15年经验的资深战略咨询顾问，擅长行业分析和战略规划。请基于以下信息，生成一份**深入、专业、有据可依**的十年战略预判分析报告。
 
 {context_text}
-
+{search_section}
 ## 用户预判
 {prediction}
 
@@ -237,12 +323,19 @@ class TenYearAgent:
         
         return content
     
-    async def _generate_simplified_report(self, prediction: str, context_text: str) -> str:
+    async def _generate_simplified_report(
+        self, prediction: str, context_text: str, search_context: str = ""
+    ) -> str:
         """备用方案：生成简化版报告"""
+        
+        search_hint = ""
+        if search_context:
+            search_hint = "\n\n请参考以下外部数据支撑你的分析：\n" + search_context[:1500]
         
         prompt = f"""基于以下信息生成简化的十年战略预判分析报告（Markdown格式）：
 
 {context_text}
+{search_hint}
 
 用户预判：{prediction}
 
@@ -253,7 +346,7 @@ class TenYearAgent:
             response = await llm_service.generate(prompt, temperature=0.5, max_tokens=2000)
             return response.strip()
         except Exception as e:
-            print(f"[TenYearAgent] 简化版也失败: {e}, 返回默认报告")
+            logger.error(f"简化版也失败: {e}, 返回默认报告")
             return self._get_default_report(prediction)
     
     def _get_default_report(self, prediction: str) -> str:

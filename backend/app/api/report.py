@@ -4,17 +4,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from urllib.parse import quote
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
+import logging
 
 from app.core.database import get_session
-from app.models.models import Session as SessionModel, Report, Message
+from app.models.models import Session as SessionModel, Report, ReportTask, Message
 from app.schemas.schemas import ReportCreate, ReportResponse
 from app.agents.ten_year import ten_year_agent
 from app.services.report_export import report_export_service
 
 router = APIRouter(prefix="/api/report", tags=["report"])
+logger = logging.getLogger(__name__)
 
-report_tasks = {}
 
 @router.post("/generate")
 async def generate_report(
@@ -81,16 +82,19 @@ async def generate_report(
         "uploaded_files": uploaded_files
     }
     
-    task_id = f"report_{session.id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    task_id = f"report_{session.id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     
-    report_tasks[task_id] = {
-        "status": "processing",
-        "progress": 0,
-        "message": "正在生成报告...",
-        "session_db_id": session.id,
-        "report_type": data.report_type,
-        "created_at": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-    }
+    # 持久化任务记录到数据库
+    report_task = ReportTask(
+        task_id=task_id,
+        session_db_id=session.id,
+        report_type=data.report_type,
+        status="processing",
+        progress=0,
+        message="正在生成报告..."
+    )
+    db.add(report_task)
+    await db.commit()
     
     background_tasks.add_task(
         _generate_report_background,
@@ -113,20 +117,27 @@ async def _generate_report_background(
 ):
     """
     后台任务：生成报告
+    使用数据库持久化任务状态
     """
-    try:
-        report_tasks[task_id]["status"] = "processing"
-        report_tasks[task_id]["progress"] = 10
-        report_tasks[task_id]["message"] = "正在提取关键洞察..."
-        
-        report_data = await ten_year_agent.analyze(prediction, context)
-        
-        report_tasks[task_id]["progress"] = 90
-        report_tasks[task_id]["message"] = "正在保存报告..."
-        
-        from app.core.database import async_session_factory
-        
-        async with async_session_factory() as db:
+    from app.core.database import async_session_factory
+    
+    async with async_session_factory() as db:
+        try:
+            # 更新任务状态
+            result = await db.execute(
+                select(ReportTask).where(ReportTask.task_id == task_id)
+            )
+            task = result.scalar_one_or_none()
+            if task:
+                task.status = "processing"
+                task.progress = 10
+                task.message = "正在提取关键洞察..."
+                await db.commit()
+            
+            # 执行分析
+            report_data = await ten_year_agent.analyze(prediction, context)
+            
+            # 保存报告
             report = Report(
                 session_id=session_db_id,
                 report_type=report_type,
@@ -138,56 +149,75 @@ async def _generate_report_background(
             await db.commit()
             await db.refresh(report)
             
-            report_tasks[task_id]["status"] = "completed"
-            report_tasks[task_id]["progress"] = 100
-            report_tasks[task_id]["message"] = "报告生成完成"
-            report_tasks[task_id]["report_id"] = report.id
-            report_tasks[task_id]["title"] = report.title
-            report_tasks[task_id]["content"] = report.content
-            report_tasks[task_id]["sources"] = report.sources
-            report_tasks[task_id]["created_at"] = report.created_at.strftime('%Y-%m-%dT%H:%M:%SZ')
-    
-    except Exception as e:
-        print(f"[ReportTask] 报告生成失败: {e}")
-        report_tasks[task_id]["status"] = "failed"
-        report_tasks[task_id]["progress"] = 0
-        report_tasks[task_id]["message"] = f"报告生成失败: {str(e)}"
+            # 更新任务状态为完成
+            if task:
+                task.status = "completed"
+                task.progress = 100
+                task.message = "报告生成完成"
+                task.report_id = report.id
+                task.title = report.title
+                task.content = report.content
+                task.sources = report.sources
+                await db.commit()
+            
+            logger.info(f"报告生成完成: task_id={task_id}, report_id={report.id}")
+        
+        except Exception as e:
+            logger.error(f"报告生成失败: task_id={task_id}, error={e}")
+            
+            # 更新任务状态为失败
+            result = await db.execute(
+                select(ReportTask).where(ReportTask.task_id == task_id)
+            )
+            task = result.scalar_one_or_none()
+            if task:
+                task.status = "failed"
+                task.progress = 0
+                task.message = f"报告生成失败: {str(e)}"
+                await db.commit()
 
 
 @router.get("/task/{task_id}")
-async def get_task_status(task_id: str):
+async def get_task_status(
+    task_id: str,
+    db: AsyncSession = Depends(get_session)
+):
     """
     查询报告生成任务状态
+    从数据库读取，服务重启后仍可查询
     """
-    if task_id not in report_tasks:
+    result = await db.execute(
+        select(ReportTask).where(ReportTask.task_id == task_id)
+    )
+    task = result.scalar_one_or_none()
+    
+    if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     
-    task = report_tasks[task_id]
-    
-    if task["status"] == "completed":
+    if task.status == "completed":
         return {
             "status": "completed",
             "progress": 100,
             "message": "报告生成完成",
             "report": {
-                "id": task["report_id"],
-                "title": task["title"],
-                "content": task["content"],
-                "sources": task["sources"],
-                "created_at": task["created_at"]
+                "id": task.report_id,
+                "title": task.title,
+                "content": task.content,
+                "sources": task.sources,
+                "created_at": task.created_at.strftime('%Y-%m-%dT%H:%M:%SZ') if task.created_at else None
             }
         }
-    elif task["status"] == "failed":
+    elif task.status == "failed":
         return {
             "status": "failed",
             "progress": 0,
-            "message": task["message"]
+            "message": task.message
         }
     else:
         return {
             "status": "processing",
-            "progress": task["progress"],
-            "message": task["message"]
+            "progress": task.progress,
+            "message": task.message
         }
 
 

@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, ForeignKey, Float
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.database import Base
 import uuid
 
@@ -32,8 +32,8 @@ class Session(Base):
     status = Column(String(20), default="active")
     
     # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # 关联
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
@@ -55,7 +55,7 @@ class Message(Base):
     extra_data = Column(JSON, nullable=True)
     file_content = Column(Text, nullable=True)
     file_name = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     session = relationship("Session", back_populates="messages")
 
@@ -73,6 +73,28 @@ class Report(Base):
     title = Column(String(200))
     content = Column(Text)
     sources = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     session = relationship("Session", back_populates="reports")
+
+
+class ReportTask(Base):
+    """
+    报告生成任务模型
+    持久化存储任务状态，替代内存字典
+    """
+    __tablename__ = "report_tasks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(100), unique=True, index=True)
+    session_db_id = Column(Integer, nullable=True)
+    report_type = Column(String(50), nullable=True)
+    status = Column(String(20), default="processing")  # processing / completed / failed
+    progress = Column(Integer, default=0)
+    message = Column(String(500), nullable=True)
+    report_id = Column(Integer, nullable=True)
+    title = Column(String(200), nullable=True)
+    content = Column(Text, nullable=True)
+    sources = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

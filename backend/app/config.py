@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 import os
 
 class Settings(BaseSettings):
@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     debug: bool = True
+    
+    # CORS配置：逗号分隔的允许origins列表，留空则允许所有
+    cors_origins: str = ""
+    
+    def get_cors_origins(self) -> List[str]:
+        """
+        获取CORS允许的origins列表
+        如果未配置则返回["*"]（开发模式兼容）
+        """
+        if not self.cors_origins:
+            return ["*"]
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
     
     class Config:
         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
