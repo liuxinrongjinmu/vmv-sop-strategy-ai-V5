@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Optional, AsyncGenerator
 import httpx
+import json
 from app.config import settings
 import logging
 
@@ -121,5 +122,133 @@ class LLMService:
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        provider: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
+        """
+        流式生成文本响应，逐token yield输出
+        自动处理主备切换
+
+        Args:
+            prompt: 输入提示
+            temperature: 温度参数
+            max_tokens: 最大token数
+            provider: 指定提供商
+
+        Yields:
+            生成的文本片段（逐token）
+        """
+        if provider:
+            providers = [provider]
+        else:
+            providers = [self.primary_provider, self.fallback_provider]
+            providers = [p for p in providers if self._has_api_key(p)]
+
+        logger.info(f"开始流式生成文本，使用提供商: {providers}")
+
+        errors = []
+        for p in providers:
+            try:
+                logger.info(f"流式调用模型: {p}")
+                if p == "zhipu":
+                    async for token in self._stream_zhipu(prompt, temperature, max_tokens):
+                        yield token
+                    return
+                elif p == "qwen":
+                    async for token in self._stream_qwen(prompt, temperature, max_tokens):
+                        yield token
+                    return
+            except Exception as e:
+                error_msg = f"模型 {p} 流式调用失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+
+        raise Exception(f"所有模型流式调用失败: {'; '.join(errors)}")
+
+    async def _stream_zhipu(self, prompt: str, temperature: float, max_tokens: int) -> AsyncGenerator[str, None]:
+        """
+        流式调用智谱GLM-4 API
+        解析SSE格式响应，逐个yield delta content
+        """
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.zhipu_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "glm-4",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True
+                }
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:"):].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        choices = data.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                    except json.JSONDecodeError:
+                        continue
+
+    async def _stream_qwen(self, prompt: str, temperature: float, max_tokens: int) -> AsyncGenerator[str, None]:
+        """
+        流式调用千问Max API
+        使用OpenAI兼容格式（DashScope兼容模式），解析SSE格式响应
+        """
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.qwen_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "qwen-max",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True
+                }
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:"):].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        choices = data.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                    except json.JSONDecodeError:
+                        continue
 
 llm_service = LLMService()

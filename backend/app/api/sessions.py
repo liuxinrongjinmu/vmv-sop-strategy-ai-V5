@@ -1,22 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Optional
-import json
+from typing import List
 import logging
 
-from app.core.database import get_session
+from app.core.database import get_session as get_db
 from app.models.models import Session as SessionModel
 from app.schemas.schemas import SessionCreate, SessionUpdate, SessionResponse, SessionDetail
-from app.services.file_parser import FileParser
+from app.core.security import limiter, verify_api_key
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 logger = logging.getLogger(__name__)
 
-@router.post("", response_model=SessionResponse)
+@router.post("", response_model=SessionResponse, dependencies=[Depends(verify_api_key)])
+@limiter.limit("10/minute")
 async def create_session(
+    request: Request,
     session_data: SessionCreate,
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     创建新会话
@@ -52,10 +53,39 @@ async def create_session(
         created_at=session.created_at
     )
 
-@router.get("/{session_id}", response_model=SessionDetail)
+@router.get("", response_model=List[SessionResponse], dependencies=[Depends(verify_api_key)])
+@limiter.limit("30/minute")
+async def list_sessions(
+    request: Request,
+    skip: int = 0,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取会话列表
+    """
+    result = await db.execute(
+        select(SessionModel)
+        .order_by(SessionModel.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    sessions = result.scalars().all()
+    
+    return [
+        SessionResponse(
+            session_id=s.session_id,
+            current_stage=s.current_stage,
+            status=s.status,
+            created_at=s.created_at
+        )
+        for s in sessions
+    ]
+
+@router.get("/{session_id}", response_model=SessionDetail, dependencies=[Depends(verify_api_key)])
 async def get_session(
     session_id: str,
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     获取会话详情
@@ -84,11 +114,11 @@ async def get_session(
         additional_info=session.additional_info
     )
 
-@router.put("/{session_id}", response_model=SessionDetail)
+@router.put("/{session_id}", response_model=SessionDetail, dependencies=[Depends(verify_api_key)])
 async def update_session(
     session_id: str,
     data: SessionUpdate,
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     更新会话信息
@@ -101,10 +131,12 @@ async def update_session(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     
-    # 更新字段
+    # 更新字段（白名单校验）
+    allowed_fields = {'vision', 'mission', 'values', 'company_name', 'industry', 'stage', 'team_size', 'selected_track', 'additional_info', 'status', 'current_stage'}
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(session, key, value)
+        if key in allowed_fields:
+            setattr(session, key, value)
     
     await db.commit()
     await db.refresh(session)
@@ -125,29 +157,26 @@ async def update_session(
         additional_info=session.additional_info
     )
 
-@router.get("", response_model=List[SessionResponse])
-async def list_sessions(
-    skip: int = 0,
-    limit: int = 20,
-    db: AsyncSession = Depends(get_session)
+
+@router.delete("/{session_id}", dependencies=[Depends(verify_api_key)])
+@limiter.limit("10/minute")
+async def delete_session(
+    request: Request,
+    session_id: str,
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    获取会话列表
+    删除会话（级联删除所有消息、报告、任务）
     """
     result = await db.execute(
-        select(SessionModel)
-        .order_by(SessionModel.created_at.desc())
-        .offset(skip)
-        .limit(limit)
+        select(SessionModel).where(SessionModel.session_id == session_id)
     )
-    sessions = result.scalars().all()
+    session = result.scalar_one_or_none()
     
-    return [
-        SessionResponse(
-            session_id=s.session_id,
-            current_stage=s.current_stage,
-            status=s.status,
-            created_at=s.created_at
-        )
-        for s in sessions
-    ]
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    await db.delete(session)
+    await db.commit()
+    
+    return {"status": "ok", "message": "会话已删除"}

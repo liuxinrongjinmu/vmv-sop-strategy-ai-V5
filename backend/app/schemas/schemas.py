@@ -53,7 +53,7 @@ class MessageCreate(BaseModel):
     """创建消息请求"""
     session_id: str
     content: str = Field(..., description="消息内容")
-    file_url: Optional[str] = Field(None, description="文件URL")
+    file_url: Optional[str] = Field(None, description="文件URL")  # 预留字段，当前未使用
 
 class MessageResponse(BaseModel):
     """消息响应"""
@@ -70,7 +70,7 @@ class MessageResponse(BaseModel):
 class ReportCreate(BaseModel):
     """创建报告请求"""
     session_id: str
-    report_type: str = Field(default="ten_year", description="报告类型")
+    report_type: str = Field(default="ten_year", description="报告类型: ten_year(十年战略预判), five_year(五年关键驱动因素), three_year(三年阶段性目标), one_year(一年任务分解与战略屋)")
     prediction: str = Field(..., description="用户预判内容")
 
 class ReportResponse(BaseModel):

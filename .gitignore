@@ -35,17 +35,22 @@ env/
 # Environment
 .env
 .env.local
+.env.production
+.env.development
+.env.*.local
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
 data/
+test.db
 
 # Uploads
 uploads/
 
 # Logs
+logs/
 *.log
 
 # Node

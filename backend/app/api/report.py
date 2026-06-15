@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from urllib.parse import quote
-import asyncio
+import re
 from datetime import datetime, timezone
 import logging
 
@@ -11,14 +11,20 @@ from app.core.database import get_session
 from app.models.models import Session as SessionModel, Report, ReportTask, Message
 from app.schemas.schemas import ReportCreate, ReportResponse
 from app.agents.ten_year import ten_year_agent
+from app.agents.five_year import five_year_agent
+from app.agents.three_year import three_year_agent
+from app.agents.one_year import one_year_agent
 from app.services.report_export import report_export_service
+from app.core.security import limiter, verify_api_key
 
 router = APIRouter(prefix="/api/report", tags=["report"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(verify_api_key)])
+@limiter.limit("5/minute")
 async def generate_report(
+    request: Request,
     data: ReportCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_session)
@@ -134,9 +140,35 @@ async def _generate_report_background(
                 task.message = "正在提取关键洞察..."
                 await db.commit()
             
-            # 执行分析
-            report_data = await ten_year_agent.analyze(prediction, context)
-            
+            # 获取前序报告（用于五年/三年/一年分析）
+            ten_year_report = ""
+            five_year_report = ""
+            three_year_report = ""
+
+            prev_reports = await db.execute(
+                select(Report)
+                .where(Report.session_id == session_db_id)
+                .order_by(Report.created_at.desc())
+            )
+            for r in prev_reports.scalars().all():
+                if r.report_type == "ten_year" and not ten_year_report:
+                    ten_year_report = r.content[:8000]
+                elif r.report_type == "five_year" and not five_year_report:
+                    five_year_report = r.content[:8000]
+                elif r.report_type == "three_year" and not three_year_report:
+                    three_year_report = r.content[:8000]
+
+            # 根据报告类型路由到不同Agent
+            if report_type == "five_year":
+                report_data = await five_year_agent.analyze(prediction, context, ten_year_report=ten_year_report)
+            elif report_type == "three_year":
+                report_data = await three_year_agent.analyze(prediction, context, ten_year_report=ten_year_report, five_year_report=five_year_report)
+            elif report_type == "one_year":
+                report_data = await one_year_agent.analyze(prediction, context, ten_year_report=ten_year_report, five_year_report=five_year_report, three_year_report=three_year_report)
+            else:
+                # 默认十年战略分析
+                report_data = await ten_year_agent.analyze(prediction, context)
+
             # 保存报告
             report = Report(
                 session_id=session_db_id,
@@ -148,7 +180,7 @@ async def _generate_report_background(
             db.add(report)
             await db.commit()
             await db.refresh(report)
-            
+
             # 更新任务状态为完成
             if task:
                 task.status = "completed"
@@ -159,8 +191,8 @@ async def _generate_report_background(
                 task.content = report.content
                 task.sources = report.sources
                 await db.commit()
-            
-            logger.info(f"报告生成完成: task_id={task_id}, report_id={report.id}")
+
+            logger.info(f"报告生成完成: task_id={task_id}, report_id={report.id}, type={report_type}")
         
         except Exception as e:
             logger.error(f"报告生成失败: task_id={task_id}, error={e}")
@@ -178,7 +210,9 @@ async def _generate_report_background(
 
 
 @router.get("/task/{task_id}")
+@limiter.limit("30/minute")
 async def get_task_status(
+    request: Request,
     task_id: str,
     db: AsyncSession = Depends(get_session)
 ):
@@ -222,7 +256,9 @@ async def get_task_status(
 
 
 @router.get("/{report_id}", response_model=ReportResponse)
+@limiter.limit("30/minute")
 async def get_report(
+    request: Request,
     report_id: int,
     db: AsyncSession = Depends(get_session)
 ):
@@ -246,7 +282,9 @@ async def get_report(
     )
 
 @router.get("/{report_id}/export")
+@limiter.limit("10/minute")
 async def export_report(
+    request: Request,
     report_id: int,
     format: str = "md",
     db: AsyncSession = Depends(get_session)
@@ -259,30 +297,53 @@ async def export_report(
         select(Report).where(Report.id == report_id)
     )
     report = result.scalar_one_or_none()
-    
+
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    
+
+    # 获取会话信息用于生成友好文件名
+    session_result = await db.execute(
+        select(SessionModel).where(SessionModel.id == report.session_id)
+    )
+    session = session_result.scalar_one_or_none()
+    company_name = session.company_name if session else "战略咨询"
+
+    # 报告类型映射
+    report_type_names = {
+        "ten_year": "十年战略预判",
+        "five_year": "五年驱动因素",
+        "three_year": "三年阶段性目标",
+        "one_year": "一年任务分解"
+    }
+    report_type = report_type_names.get(report.report_type, "战略分析")
+
+    # 清理文件名中的特殊字符
+    safe_name = re.sub(r'[\\/:*?"<>|]', '', company_name)
+    friendly_filename = f"{safe_name}_{report_type}报告"
+
     if format == "md":
-        content, filename = report_export_service.export_markdown(
+        content, _ = report_export_service.export_markdown(
             report.content, report.title
         )
+        filename = f"{friendly_filename}.md"
         media_type = "text/markdown"
     elif format == "pdf":
-        content, filename = report_export_service.export_pdf(
+        content, _ = report_export_service.export_pdf(
             report.content, report.title
         )
+        filename = f"{friendly_filename}.pdf"
         media_type = "application/pdf"
     elif format == "docx":
-        content, filename = report_export_service.export_docx(
+        content, _ = report_export_service.export_docx(
             report.content, report.title
         )
+        filename = f"{friendly_filename}.docx"
         media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     else:
         raise HTTPException(status_code=400, detail=f"不支持的导出格式: {format}")
-    
+
     encoded_filename = quote(filename)
-    
+
     return Response(
         content=content,
         media_type=media_type,

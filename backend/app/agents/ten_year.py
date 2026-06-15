@@ -1,15 +1,13 @@
 from typing import Dict, Any, List
-import asyncio
-import json
-import re
 import time
 import logging
+from app.agents.base import BaseAgent
 from app.services.llm import llm_service
-from app.services.search import search_service
+from app.prompts.ten_year import get_ten_year_prompt
 
 logger = logging.getLogger(__name__)
 
-class TenYearAgent:
+class TenYearAgent(BaseAgent):
     """
     十年战略Agent
     负责赛道预判分析，生成正反论据和综合判断
@@ -17,16 +15,14 @@ class TenYearAgent:
     极速版：单次LLM调用生成完整报告，避免多步超时累积
     """
     
-    def __init__(self):
-        self.name = "ten_year_strategy"
+    name = "ten_year_strategy"
+    report_title = "十年战略预判分析报告"
     
-    async def analyze(self, prediction: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def analyze(self, prediction: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
         执行十年战略分析
         流程：搜索外部数据 → 单次LLM调用生成报告
         """
-        start_time = time.time()
-        
         session_info = context.get("session_info", {})
         chat_history = context.get("chat_history", [])
         uploaded_files = context.get("uploaded_files", [])
@@ -39,152 +35,21 @@ class TenYearAgent:
         # 搜索外部数据支撑
         search_results, search_context = await self._search_evidence(prediction, session_info)
         
-        # 单次LLM调用生成完整报告
-        logger.info("单次LLM调用生成报告...")
-        step_start = time.time()
-        
-        try:
-            report_content = await self._generate_report_single_call(
-                prediction, context_text, search_context
-            )
-            step_end = time.time()
-            logger.info(f"报告生成完成! 耗时: {step_end - step_start:.2f}秒")
-            
-            total_time = time.time() - start_time
-            logger.info(f"总耗时: {total_time:.2f}秒")
-            
-            return {
-                "title": "十年战略预判分析报告",
-                "content": report_content,
-                "sources": search_results
-            }
-            
-        except Exception as e:
-            logger.error(f"单次调用失败: {e}, 尝试简化版...")
-            # 备用方案：生成简化报告
-            simplified_content = await self._generate_simplified_report(
-                prediction, context_text, search_context
-            )
-            
-            total_time = time.time() - start_time
-            logger.info(f"简化版报告生成完成! 总耗时: {total_time:.2f}秒")
-            
-            return {
-                "title": "十年战略预判分析报告",
-                "content": simplified_content,
-                "sources": search_results
-            }
-    
-    def _build_context(self, session_info: Dict, chat_history: List[Dict], uploaded_files: List[Dict]) -> str:
-        """构建上下文信息文本"""
-        parts = []
-        
-        # 企业信息
-        company_name = session_info.get('company_name', '未提供')
-        industry = session_info.get('industry', '未提供')
-        stage = session_info.get('stage', '未提供')
-        track = session_info.get('selected_track', '未提供')
-        vision = session_info.get('vision', '')
-        mission = session_info.get('mission', '')
-        
-        parts.append(f"## 企业信息")
-        parts.append(f"- 企业名称：{company_name}")
-        parts.append(f"- 行业领域：{industry}")
-        parts.append(f"- 发展阶段：{stage}")
-        parts.append(f"- 选定赛道：{track}")
-        if vision:
-            parts.append(f"- 愿景：{vision[:100]}")
-        if mission:
-            parts.append(f"- 使命：{mission[:100]}")
-        
-        # 聊天历史摘要（取最后5条）
-        if chat_history:
-            parts.append(f"\n## 对话记录（最近）")
-            for msg in chat_history[-5:]:
-                role_label = "用户" if msg['role'] == 'user' else "顾问"
-                content_preview = msg['content'][:150] + ("..." if len(msg['content']) > 150 else "")
-                parts.append(f"- **{role_label}**：{content_preview}")
-        
-        # 上传文件信息
-        if uploaded_files:
-            parts.append(f"\n## 上传文件")
-            for f in uploaded_files[:2]:
-                filename = f.get('filename', '')
-                content_preview = f.get('content', '')[:200]
-                parts.append(f"- **{filename}**：{content_preview}...")
-        
-        return "\n".join(parts)
-    
-    async def _search_evidence(
-        self, prediction: str, session_info: Dict
-    ) -> tuple:
-        """
-        搜索外部数据支撑论据
-        返回 (sources列表, 搜索上下文文本)
-        """
-        track = session_info.get("selected_track", "")
-        industry = session_info.get("industry", "")
-        
-        # 构建搜索查询
-        search_queries = []
-        if track:
-            search_queries.append(f"{track} 行业趋势 市场规模")
-        if industry and industry != track:
-            search_queries.append(f"{industry} 发展前景 竞争格局")
-        
-        # 从用户预判中提取关键主题进行搜索
-        keywords = re.findall(r'[\u4e00-\u9fa5]{2,6}(?:市场|行业|技术|趋势|增长|发展|竞争)', prediction)
-        for kw in keywords[:2]:
-            search_queries.append(kw)
-        
-        all_results = []
-        for query in search_queries[:3]:
-            try:
-                results = await search_service.search(query, num_results=3)
-                all_results.extend(results)
-                logger.info(f"搜索 '{query}' 返回 {len(results)} 条结果")
-            except Exception as e:
-                logger.warning(f"搜索 '{query}' 失败: {e}")
-        
-        # 去重
-        seen_urls = set()
-        unique_results = []
-        for r in all_results:
-            url = r.get("link", "")
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_results.append(r)
-        
-        # 构建搜索上下文
-        search_context = ""
-        if unique_results:
-            parts = ["\n## 搜索到的外部数据（请在报告中引用这些数据来支撑论据）\n"]
-            for i, r in enumerate(unique_results[:8], 1):
-                title = r.get("title", "")
-                snippet = r.get("snippet", "")
-                link = r.get("link", "")
-                parts.append(f"### 来源 {i}: {title}")
-                parts.append(f"摘要: {snippet}")
-                parts.append(f"链接: {link}\n")
-            search_context = "\n".join(parts)
-        
-        # 格式化 sources
-        sources = [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("link", ""),
-                "snippet": r.get("snippet", "")
-            }
-            for r in unique_results[:8]
-        ]
-        
-        return sources, search_context
+        # 带降级的报告生成
+        result = await self._generate_with_fallback(
+            prediction, context_text, search_context,
+            self._generate_report_single_call,
+            self._generate_simplified_report,
+            self._get_default_report
+        )
+        result["sources"] = search_results
+        return result
     
     async def _generate_report_single_call(
         self, prediction: str, context_text: str, search_context: str = ""
     ) -> str:
         """单次LLM调用生成完整报告（深度版）"""
-        
+
         search_section = ""
         if search_context:
             search_section = f"""
@@ -192,135 +57,18 @@ class TenYearAgent:
 
 **重要：** 请在正面论据和反面论据的分析中，积极引用上述搜索到的外部数据来支撑你的论证。引用时标注"据外部数据"或"根据行业报告"。
 """
-        
-        prompt = f"""你是一位拥有15年经验的资深战略咨询顾问，擅长行业分析和战略规划。请基于以下信息，生成一份**深入、专业、有据可依**的十年战略预判分析报告。
 
-{context_text}
-{search_section}
-## 用户预判
-{prediction}
-
----
-
-请直接输出完整的Markdown格式报告，**总字数不少于3500字**，包含以下结构：
-
-# 十年战略预判分析报告
-
-## 一、预判摘要
-（120-180字，完整概括用户的核心预判、关键趋势判断、主要机会点）
-
----
-
-## 二、正面论据分析
-（至少2-3个论据，每个都要深入分析）
-
-### 2.X 论据标题（如"高净值人群对延年益寿需求增长"）
-**核心观点：** （20-30字）
-
-**论证过程：**
-（**300-450字深度论证**，必须：
-- 引用具体的市场数据、行业趋势或用户提供的背景信息
-- 分析需求产生的根本原因和驱动力
-- 说明为什么这对企业是机会
-- **禁止臆测企业未提供的信息**，如不确定则标注"基于有限信息"
-- 使用专业术语但保持可读性）
-
-**数据支持：**
-- 具体数据点1（如"中国高净值人群规模预计2025年达到XXX万"）
-- 具体数据点2
-- 具体数据点3
-
-**逻辑推演步骤：**
-1. （具体步骤1，20字内）
-2. （具体步骤2，20字内）
-3. （具体步骤3，20字内）
-4. （具体步骤4，20字内）
-
-**对企业启示：** （80-120字，给出具体的战略建议方向）
-
----
-
-## 三、反面论据分析
-（至少2-3个风险点，每个都要深入分析）
-
-### 3.X 风险标题（如"市场认知度低"或"初期资源有限"）
-**核心风险：** （20-30字）
-
-**风险深度分析：**
-（**300-450字深度分析**，必须：
-- 详细描述风险的具体表现和影响机制
-- 分析风险发生的可能性和时间节点
-- 说明该风险对企业可能造成的具体损失
-- 区分"已知风险"和"假设性风险"，后者要明确标注
-- 不要为了凑数而编造风险，只分析真实存在的挑战）
-
-**风险指标：**
-- 具体指标1（如"获客成本高于行业平均XX%"）
-- 具体指标2
-- 具体指标3
-
-**对企业影响：** （80-120字，说明具体影响哪些业务环节）
-**应对措施：** （80-120字，给出可操作的应对方案）
-
----
-
-## 四、综合判断
-
-### 4.1 可信度评估
-**等级：** 高/中/低 | **评分：** XX/100
-**理由：** （80-120字评分理由，说明打分依据和不确定性来源）
-
-### 4.2 SWOT分析
-- **优势：** （2-3个，每项20字内）
-- **劣势：** （2-3个，每项20字内）
-- **机会：** （2-3个，每项20字内）
-- **威胁：** （2-3个，每项20字内）
-
-### 4.3 关键变量识别
-（至少3-5个变量）
-**变量名** - 详细说明（40字内）（影响：正向/负向 | 重要程度：高/中/低 | 监测方法：30字内）
-
-### 4.4 情景分析
-- **乐观情景：** （50-80字，描述最佳情况及发生条件）
-- **基准情景：** （50-80字，描述最可能情况）
-- **悲观情景：** （50-80字，描述最差情况及触发条件）
-- （每种情景注明大致概率）
-
-### 4.5 行动建议
-（至少3条，按优先级排序）
-**建议X: 具体行动名称** - 理由：（60-100字）| 优先级：高/中/低 | 时间框架：具体时间 | 预期效果：（30字内）
-
-### 4.6 风险应对策略
-（针对上述反面论据中的主要风险）
-**风险X: 风险名称** - 应对策略：（60-100字具体方案）| 触发条件预案：（40字内）
-
-### 4.7 综合判断总结
-（200-300字深度总结，必须包含：
-- 整体评价（该预判的合理性和可行性）
-- 核心成功因素（3-4个关键成功要素）
-- 主要风险提示（2-3个必须警惕的风险点）
-- 战略方向建议（未来3-5年的发展路径）
-- 最终结论（对该企业/赛道的总体判断）
-
----
-
-**核心原则（违反将导致报告质量下降）：**
-1. **事实优先**：所有结论必须有依据，禁止凭空臆测企业业务模式
-2. **透明标注**：信息不足时必须明确写明"基于有限信息的分析"
-3. **深度分析**：每个论据和风险都要有实质性的分析内容，不要泛泛而谈
-4. **数据支撑**：尽量引用具体数字、比例、趋势等量化信息
-5. ** actionable**：所有建议都应该是可执行的，而非空泛的方向性描述
-6. 直接输出Markdown报告正文，不要有任何前缀解释"""
+        prompt = get_ten_year_prompt(prediction, context_text, search_section)
 
         response = await llm_service.generate(prompt, temperature=0.35, max_tokens=6000)
-        
+
         # 清理响应内容
         content = response.strip()
-        
+
         # 确保以标题开头
         if not content.startswith("#"):
             content = "# 十年战略预判分析报告\n\n" + content
-        
+
         return content
     
     async def _generate_simplified_report(
@@ -342,12 +90,8 @@ class TenYearAgent:
 请包含：预判摘要、2个正面论据、2个反面论据、SWOT分析、3条行动建议、总结。
 每个部分精简到100字以内。直接输出报告内容。"""
 
-        try:
-            response = await llm_service.generate(prompt, temperature=0.5, max_tokens=2000)
-            return response.strip()
-        except Exception as e:
-            logger.error(f"简化版也失败: {e}, 返回默认报告")
-            return self._get_default_report(prediction)
+        response = await llm_service.generate(prompt, temperature=0.5, max_tokens=2000)
+        return response.strip()
     
     def _get_default_report(self, prediction: str) -> str:
         """返回默认报告（兜底方案）"""

@@ -1,7 +1,5 @@
 import os
-import uuid
 import tempfile
-from typing import Optional, Tuple
 import fitz
 from docx import Document
 import asyncio

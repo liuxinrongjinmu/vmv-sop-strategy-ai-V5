@@ -20,5 +20,10 @@ export const sessionService = {
   async list(skip: number = 0, limit: number = 20): Promise<SessionResponse[]> {
     const response = await api.get('/sessions', { params: { skip, limit } })
     return response.data
+  },
+
+  async delete(sessionId: string): Promise<{status: string; message: string}> {
+    const response = await api.delete(`/sessions/${sessionId}`)
+    return response.data
   }
 }

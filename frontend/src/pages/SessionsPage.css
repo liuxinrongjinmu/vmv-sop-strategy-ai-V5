@@ -1,0 +1,248 @@
+.sessions-page {
+  min-height: 100vh;
+  padding: 40px 20px;
+  background: var(--bg-gradient);
+}
+
+.sessions-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sessions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+}
+
+.sessions-header h1 {
+  font-size: 32px;
+  font-weight: 600;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.sessions-header .new-session-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+/* 加载状态 */
+.sessions-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  color: var(--text-secondary);
+  gap: 16px;
+}
+
+/* 空状态 */
+.sessions-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.sessions-empty h3 {
+  font-size: 20px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.sessions-empty p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+/* 会话卡片网格 */
+.sessions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+/* 会话卡片 */
+.session-card {
+  position: relative;
+  padding: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.session-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.25);
+  border-color: rgba(102, 126, 234, 0.4);
+}
+
+/* 删除按钮 */
+.session-card .delete-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 77, 79, 0.15);
+  border: 1px solid rgba(255, 77, 79, 0.25);
+  color: var(--error-color);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  line-height: 1;
+}
+
+.session-card:hover .delete-btn {
+  opacity: 1;
+}
+
+.session-card .delete-btn:hover {
+  background: rgba(255, 77, 79, 0.3);
+  transform: scale(1.1);
+}
+
+.session-card .delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 卡片头部 */
+.session-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-card-header .company-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+  flex: 1;
+  padding-right: 20px;
+}
+
+/* 阶段标签 */
+.stage-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stage-tag-info {
+  background: rgba(102, 126, 234, 0.2);
+  color: #8fa4f0;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.stage-tag-warning {
+  background: rgba(250, 173, 20, 0.2);
+  color: #f0c860;
+  border: 1px solid rgba(250, 173, 20, 0.3);
+}
+
+.stage-tag-success {
+  background: rgba(82, 196, 26, 0.2);
+  color: #7ed856;
+  border: 1px solid rgba(82, 196, 26, 0.3);
+}
+
+/* 卡片内容 */
+.session-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.session-info-row .info-label {
+  color: var(--text-secondary);
+  min-width: 36px;
+  flex-shrink: 0;
+}
+
+.session-info-row .info-value {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 卡片底部 */
+.session-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+
+.session-status {
+  color: var(--primary-color);
+}
+
+.session-time {
+  color: var(--text-secondary);
+}
+
+/* 响应式布局 */
+@media (max-width: 1024px) {
+  .sessions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .sessions-page {
+    padding: 20px 12px;
+  }
+
+  .sessions-header h1 {
+    font-size: 24px;
+  }
+
+  .sessions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .session-card {
+    padding: 18px;
+  }
+
+  .session-card .delete-btn {
+    opacity: 1;
+  }
+}

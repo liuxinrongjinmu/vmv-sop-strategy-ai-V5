@@ -71,7 +71,7 @@ class SearchService:
                 logger.info(f"Tavily搜索成功，返回{len(results)}条结果")
                 return results
         except Exception as e:
-            logger.error(f"Tavily搜索失败: {e}")
+            logger.warning(f"搜索失败 (query={query}): {e}")
             return []
 
 search_service = SearchService()

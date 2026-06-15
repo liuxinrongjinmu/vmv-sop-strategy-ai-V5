@@ -1,29 +1,32 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { chatService } from '../services/chat'
+import { chatService, StreamEvent } from '../services/chat'
 import { reportService } from '../services/report'
 import { useAppStore } from '../stores/appStore'
-import { MessageResponse, MessageMetadata } from '../types/message'
+import { MessageResponse } from '../types/message'
+import { ReportType, REPORT_TYPE_INFO } from '../types/report'
+import Sidebar from '../components/Sidebar'
+import MessageList from '../components/MessageList'
+import ChatInput from '../components/ChatInput'
 import './ChatPage.css'
-
-const stageNames = ['信息补充', '自由提问', '预判采集', '报告生成', '报告反馈']
 
 const ChatPage: React.FC = () => {
   const navigate = useNavigate()
-  const { sessionId, sessionInfo, messages, currentStage, addMessage, setMessages, setCurrentStage, setIsLoading, isLoading } = useAppStore()
-  
+  const { sessionId, sessionInfo, messages, currentStage, addMessage, updateLastAssistantMessage, updateLastAssistantMetadata, setMessages, setCurrentStage, setIsLoading, setIsStreaming, isLoading, isStreaming } = useAppStore()
+
   const [inputValue, setInputValue] = useState('')
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768)
+  const [copiedId, setCopiedId] = useState<number | null>(null)
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!sessionId) {
       navigate('/')
       return
     }
-    
+
     loadHistory()
   }, [sessionId])
 
@@ -56,7 +59,7 @@ const ChatPage: React.FC = () => {
 
   const loadHistory = async () => {
     if (!sessionId) return
-    
+
     try {
       const history = await chatService.getHistory(sessionId)
       setMessages(history)
@@ -80,85 +83,185 @@ const ChatPage: React.FC = () => {
     })
   }
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || isLoading || !sessionId) return
+  const handleStopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setIsStreaming(false)
+    setIsLoading(false)
+  }
 
-    const userMessage = inputValue.trim()
+  const handleSend = useCallback(async (overrideContent?: string) => {
+    const contentToSend = overrideContent || inputValue.trim()
+    if (!contentToSend || isLoading || isStreaming || !sessionId) return
+
     setInputValue('')
-    
+
     addMessage({
       id: Date.now(),
       role: 'user',
-      content: userMessage,
+      content: contentToSend,
       stage: currentStage,
       created_at: new Date().toISOString(),
       metadata: {}
     })
-    
+
+    // 创建AI占位消息
+    const assistantId = Date.now() + 1
+    addMessage({
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      stage: currentStage,
+      created_at: new Date().toISOString(),
+      metadata: {}
+    })
+
     setIsLoading(true)
-    
+    setIsStreaming(true)
+    let accumulatedContent = ''
+
+    // 创建 AbortController
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     try {
-      // 统一由后端 Agent 判断意图（普通对话/阶段转换/生成报告）
-      const response = await chatService.send({
-        session_id: sessionId,
-        content: userMessage
-      })
-      addMessage(response)
-      
-      // 根据后端返回的类型处理
-      const metadata = response.metadata
-      if (metadata?.type === 'report') {
-        // 后端判定为报告生成意图，触发异步报告生成
-        setCurrentStage(4)
-        sendSystemMessage('正在为您生成十年战略分析报告，请稍候...')
-        
-        try {
-          const reportResponse = await reportService.generate({
-            session_id: sessionId,
-            prediction: userMessage
-          })
-          
-          addMessage({
-            id: Date.now(),
-            role: 'assistant',
-            content: reportResponse.content,
-            stage: 4,
-            created_at: new Date().toISOString(),
-            metadata: {
-              type: 'report',
-              report_id: reportResponse.id,
-              sources: reportResponse.sources
-            }
-          })
-          
-          setCurrentStage(5)
-          sendSystemMessage('报告已为您生成，请问您对这份报告，还有需要交流、探讨的地方吗？')
-        } catch (reportError: any) {
-          console.error('报告生成失败:', reportError)
-          const errorMsg = reportError.response?.data?.detail || reportError.message || '未知错误'
-          sendSystemMessage('报告生成失败: ' + errorMsg)
-          setCurrentStage(3)
+      await chatService.sendStream(
+        { session_id: sessionId, content: contentToSend },
+        (event: StreamEvent) => {
+          switch (event.type) {
+            case 'text':
+              accumulatedContent += event.content || ''
+              updateLastAssistantMessage(accumulatedContent)
+              break
+            case 'stage':
+              if (event.stage) {
+                setCurrentStage(event.stage)
+              }
+              break
+            case 'report':
+              if (event.content) {
+                accumulatedContent = event.content
+                updateLastAssistantMessage(accumulatedContent)
+              }
+              if (event.stage) {
+                setCurrentStage(event.stage)
+              }
+              // 触发异步报告生成
+              setCurrentStage(4)
+              handleReportGeneration(contentToSend, (event as any).report_type || 'ten_year')
+              break
+            case 'meta':
+              if (event.stage) {
+                setCurrentStage(event.stage)
+              }
+              if (event.sources) {
+                updateLastAssistantMetadata({ sources: event.sources })
+              }
+              break
+            case 'error':
+              accumulatedContent = event.content || '内容生成失败，请重试'
+              updateLastAssistantMessage(accumulatedContent)
+              break
+          }
+        },
+        () => {
+          // onDone
+          setIsStreaming(false)
+          setIsLoading(false)
+          abortControllerRef.current = null
+        },
+        (error: string) => {
+          // onError
+          updateLastAssistantMessage('抱歉，处理您的消息时出现错误: ' + error)
+          setIsStreaming(false)
+          setIsLoading(false)
+          abortControllerRef.current = null
+        },
+        abortController.signal
+      )
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        // 用户主动停止
+        if (!accumulatedContent) {
+          updateLastAssistantMessage('[已停止生成]')
         }
       } else {
-        // 普通对话或阶段转换
-        if (response.stage) {
-          setCurrentStage(response.stage)
-        }
+        updateLastAssistantMessage('抱歉，处理您的消息时出现错误: ' + (error.message || '未知错误'))
       }
-    } catch (error: any) {
-      console.error('处理消息失败:', error)
-      sendSystemMessage('抱歉，处理您的消息时出现错误: ' + (error.response?.data?.detail || error.message || '未知错误'))
-    } finally {
+      setIsStreaming(false)
       setIsLoading(false)
+      abortControllerRef.current = null
+    }
+  }, [inputValue, isLoading, isStreaming, sessionId, currentStage])
+
+  const handleReportGeneration = async (prediction: string, reportType: string = 'ten_year') => {
+    const typeInfo = REPORT_TYPE_INFO[reportType as ReportType] || REPORT_TYPE_INFO.ten_year
+
+    // 请求浏览器通知权限
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+
+    setIsGeneratingReport(true)
+
+    // 添加进度占位消息
+    addMessage({
+      id: Date.now(),
+      role: 'assistant',
+      content: `📊 正在生成${typeInfo.label}报告，请稍候...\n\n💡 您可以继续对话，报告将在后台生成。完成后会在此处显示。`,
+      stage: 4,
+      created_at: new Date().toISOString(),
+      metadata: { type: 'progress' }
+    })
+
+    try {
+      const reportResponse = await reportService.generate(
+        {
+          session_id: sessionId!,
+          prediction: prediction,
+          report_type: reportType
+        },
+        (progress: number, message: string) => {
+          updateLastAssistantMessage(`📊 ${message} (${progress}%)\n\n💡 您可以继续对话，报告将在后台生成。`)
+        }
+      )
+
+      addMessage({
+        id: Date.now(),
+        role: 'assistant',
+        content: reportResponse.content,
+        stage: 4,
+        created_at: new Date().toISOString(),
+        metadata: {
+          type: 'report',
+          report_id: reportResponse.id,
+          sources: reportResponse.sources
+        }
+      })
+
+      setCurrentStage(5)
+      sendSystemMessage('报告已为您生成，请问您对这份报告，还有需要交流、探讨的地方吗？')
+
+      // 浏览器通知
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('VMV-SOP 战略咨询', {
+          body: `${typeInfo.label}报告已生成完成！`,
+          icon: '/favicon.ico'
+        })
+      }
+    } catch (reportError: any) {
+      console.error('报告生成失败:', reportError)
+      const errorMsg = reportError.response?.data?.detail || reportError.message || '未知错误'
+      updateLastAssistantMessage('❌ 报告生成失败: ' + errorMsg)
+      setCurrentStage(3)
+    } finally {
+      setIsGeneratingReport(false)
     }
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-
-    const file = files[0]
-    
+  const handleFileUpload = async (file: File) => {
     if (!sessionId) {
       sendSystemMessage('请先创建会话')
       return
@@ -169,13 +272,13 @@ const ChatPage: React.FC = () => {
       sendSystemMessage(`文件过大(${(file.size / 1024 / 1024).toFixed(1)}MB)，请选择10MB以内的文件`)
       return
     }
-    
+
     try {
       setIsLoading(true)
       const response = await chatService.uploadFile(file, sessionId)
-      
+
       const summaryMessage = `请帮我分析总结刚刚上传的文件"${response.filename}"的核心内容。文件内容摘要如下：\n\n${response.content}\n\n请详细总结这份文件的核心要点，并分析其与我们当前战略讨论的关联性。`
-      
+
       addMessage({
         id: Date.now(),
         role: 'user',
@@ -184,12 +287,12 @@ const ChatPage: React.FC = () => {
         created_at: new Date().toISOString(),
         metadata: {}
       })
-      
+
       const aiResponse = await chatService.send({
         session_id: sessionId,
         content: summaryMessage
       })
-      
+
       addMessage(aiResponse)
       setCurrentStage(aiResponse.stage)
     } catch (error: any) {
@@ -215,220 +318,90 @@ const ChatPage: React.FC = () => {
       sendSystemMessage(errorMsg + '，请重试。')
     } finally {
       setIsLoading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+    }
+  }
+
+  const copyMessage = async (content: string, messageId: number) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedId(messageId)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = content
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopiedId(messageId)
+      setTimeout(() => setCopiedId(null), 2000)
+    }
+  }
+
+  /**
+   * 重新生成消息：找到对应的用户消息，删除当前assistant消息后重新发送
+   */
+  const regenerateMessage = async (message: MessageResponse) => {
+    if (isLoading || isStreaming) return
+    const msgIndex = messages.findIndex(m => m.id === message.id)
+    let userMsg = ''
+    for (let i = msgIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userMsg = messages[i].content
+        break
       }
     }
-  }
+    if (!userMsg) return
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
+    // 删除当前assistant消息
+    const newMessages = messages.filter(m => m.id !== message.id)
+    setMessages(newMessages)
 
-  const handleExport = (reportId: number, format: 'md' | 'pdf' | 'docx') => {
-    const url = reportService.getExportUrl(reportId, format)
-    window.open(url, '_blank')
-  }
-
-  const renderMessage = (message: MessageResponse) => {
-    const isUser = message.role === 'user'
-    const metadata = message.metadata
-
-    return (
-      <div key={message.id} className={`message-item ${isUser ? 'user' : 'assistant'} fade-in`}>
-        <div className="message-avatar">
-          {isUser ? '👤' : '🤖'}
-        </div>
-        <div className="message-content">
-          {isUser ? (
-            <div className="message-text">{message.content}</div>
-          ) : (
-            <div className="message-markdown">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {message.content}
-              </ReactMarkdown>
-            </div>
-          )}
-          
-          {metadata?.type === 'report' && (
-            <div className="report-actions">
-              <div className="export-buttons">
-                <span className="export-label">下载报告：</span>
-                <button 
-                  className="export-btn"
-                  onClick={() => handleExport(metadata.report_id, 'md')}
-                  title="导出为Markdown"
-                >
-                  MD
-                </button>
-                <button 
-                  className="export-btn"
-                  onClick={() => handleExport(metadata.report_id, 'pdf')}
-                  title="导出为PDF"
-                >
-                  PDF
-                </button>
-                <button 
-                  className="export-btn"
-                  onClick={() => handleExport(metadata.report_id, 'docx')}
-                  title="导出为Word"
-                >
-                  DOCX
-                </button>
-              </div>
-            </div>
-          )}
-          
-          <div className="message-time">
-            {new Date(message.created_at).toLocaleTimeString()}
-          </div>
-        </div>
-      </div>
-    )
+    // 直接调用发送逻辑
+    setTimeout(() => handleSend(userMsg), 0)
   }
 
   return (
     <div className="chat-page">
       <div className="chat-container">
-        <div className="sidebar">
-          <div className="header-left">
-            <h2>{sessionInfo?.company_name || '战略咨询'}</h2>
-          </div>
-          
-          {sessionInfo && (
-            <div className="company-info">
-              {sessionInfo.selected_track && (
-                <div className="info-item">
-                  <div className="info-label">赛道</div>
-                  <div className="info-value">{sessionInfo.selected_track}</div>
-                </div>
-              )}
-              {sessionInfo.vision && (
-                <div className="info-item">
-                  <div className="info-label">愿景</div>
-                  <div className="info-value">{sessionInfo.vision}</div>
-                </div>
-              )}
-              {sessionInfo.mission && (
-                <div className="info-item">
-                  <div className="info-label">使命</div>
-                  <div className="info-value">{sessionInfo.mission}</div>
-                </div>
-              )}
-              {sessionInfo.values && (
-                <div className="info-item">
-                  <div className="info-label">价值观</div>
-                  <div className="info-value">{sessionInfo.values}</div>
-                </div>
-              )}
-            </div>
-          )}
-          
-          <div className="stage-indicator">
-            <div className="stage-title">分析阶段</div>
-            {stageNames.map((name, index) => (
-              <div 
-                key={index} 
-                className={`stage-item ${currentStage === index + 1 ? 'active' : ''} ${currentStage > index + 1 ? 'completed' : ''}`}
-              >
-                <div className="stage-dot">{index + 1}</div>
-                <span className="stage-name">{name}</span>
-                {currentStage > index + 1 && (
-                  <div className="stage-check">✓</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+        <Sidebar
+          sessionInfo={sessionInfo}
+          currentStage={currentStage}
+          isLoading={isLoading || isGeneratingReport}
+          isStreaming={isStreaming}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onReportGenerate={(prediction, reportType) => handleReportGeneration(prediction || inputValue, reportType)}
+          onNewSession={() => {
+            useAppStore.getState().reset()
+            navigate('/')
+          }}
+          onNavigateSessions={() => navigate('/sessions')}
+        />
 
         <div className="chat-main">
           <div className="messages-container">
-            {messages.length === 0 && (
-              <div className="welcome-message glass-card-light">
-                <h3>欢迎使用战略咨询系统</h3>
-                <p>我是您的战略顾问，将帮助您进行十年战略预判分析。</p>
-                <p>您可以：</p>
-                <ul>
-                  <li>补充更多企业信息</li>
-                  <li>提出需要探讨的问题</li>
-                  <li>直接分享您对赛道的预判（系统将自动生成分析报告）</li>
-                </ul>
-              </div>
-            )}
-            
-            {messages.map(renderMessage)}
-            
-            {isLoading && (
-              <div className="message-item assistant">
-                <div className="message-avatar">🤖</div>
-                <div className="message-content">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
-              </div>
-            )}
-            
+            <MessageList
+              messages={messages}
+              copiedId={copiedId}
+              onCopyMessage={copyMessage}
+              onRegenerateMessage={regenerateMessage}
+              isLoading={isLoading}
+              isStreaming={isStreaming}
+            />
+
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="input-container">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept=".pdf,.docx,.doc,.md"
-              style={{ display: 'none' }}
-            />
-            
-            <button 
-              className="upload-icon-btn"
-              onClick={() => fileInputRef.current?.click()}
-              title="上传文件（支持PDF、DOCX、MD）"
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-              </svg>
-            </button>
-            
-            <textarea
-              className="input-textarea"
-              placeholder="输入消息... （直接分享您的预判即可生成报告）"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading}
-              rows={1}
-            />
-            
-            {inputValue.trim() ? (
-              <button 
-                className="send-circle-btn"
-                onClick={handleSend}
-                disabled={!inputValue.trim() || isLoading}
-                title="发送"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"/>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
-              </button>
-            ) : (
-              <div className="voice-circle-btn" title="语音输入（即将支持）">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                  <line x1="12" y1="19" x2="12" y2="23"/>
-                  <line x1="8" y1="23" x2="16" y2="23"/>
-                </svg>
-              </div>
-            )}
-          </div>
+          <ChatInput
+            value={inputValue}
+            onChange={setInputValue}
+            onSend={() => handleSend()}
+            onStop={handleStopGeneration}
+            onFileUpload={handleFileUpload}
+            isLoading={isLoading}
+            isStreaming={isStreaming}
+          />
         </div>
       </div>
     </div>

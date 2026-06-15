@@ -259,3 +259,105 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+.error-boundary-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.error-boundary-card {
+  text-align: center;
+  max-width: 400px;
+  padding: 40px;
+}
+
+.error-boundary-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.error-boundary-card h2 {
+  color: #ff6b6b;
+  margin-bottom: 12px;
+}
+
+.error-boundary-card p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+
+/* 浅色主题 */
+[data-theme="light"] {
+  --bg-primary: #f0f2f5;
+  --bg-secondary: #ffffff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #6b7280;
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-bg-light: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.9);
+  --primary-color: #4f46e5;
+  --accent-color: #6366f1;
+  --primary-gradient: linear-gradient(135deg, #4f46e5, #7c3aed);
+  --success-color: #10b981;
+  --glass-card-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .init-page,
+[data-theme="light"] .chat-page,
+[data-theme="light"] .sessions-page {
+  background: linear-gradient(135deg, #e0e7ff 0%, #f0f2f5 50%, #e8e0f0 100%);
+}
+
+[data-theme="light"] .glass-card,
+[data-theme="light"] .glass-card-dark {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #1a1a2e;
+}
+
+[data-theme="light"] .glass-input,
+[data-theme="light"] .glass-textarea,
+[data-theme="light"] .glass-select {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1a1a2e;
+}
+
+[data-theme="light"] .glass-input::placeholder,
+[data-theme="light"] .glass-textarea::placeholder {
+  color: #9ca3af;
+}
+
+[data-theme="light"] .message-markdown {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="light"] .message-item.user .message-text {
+  color: white;
+}
+
+[data-theme="light"] .sidebar {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .input-container {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .input-textarea {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1a1a2e;
+}
+
+[data-theme="light"] select option {
+  background: #ffffff;
+  color: #1a1a2e;
+}

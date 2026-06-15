@@ -26,37 +26,21 @@ class ErrorBoundary extends Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          padding: '20px',
-          textAlign: 'center',
-          fontFamily: 'system-ui, -apple-system, sans-serif'
-        }}>
-          <h2 style={{ color: '#e74c3c', marginBottom: '16px' }}>页面出现错误</h2>
-          <p style={{ color: '#666', marginBottom: '24px' }}>
-            {this.state.error?.message || '发生了未知错误'}
-          </p>
-          <button
-            onClick={() => {
-              this.setState({ hasError: false, error: null })
-              window.location.href = '/'
-            }}
-            style={{
-              padding: '10px 24px',
-              backgroundColor: '#4a90d9',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            返回首页
-          </button>
+        <div className="error-boundary-page">
+          <div className="error-boundary-card glass-card">
+            <div className="error-boundary-icon">⚠️</div>
+            <h2>页面出现错误</h2>
+            <p>{this.state.error?.message || '发生了未知错误'}</p>
+            <button
+              className="glass-button"
+              onClick={() => {
+                this.setState({ hasError: false, error: null })
+                window.location.href = '/'
+              }}
+            >
+              返回首页
+            </button>
+          </div>
         </div>
       )
     }

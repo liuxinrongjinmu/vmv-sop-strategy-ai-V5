@@ -1,5 +1,5 @@
 export interface MessageMetadata {
-  type?: 'chat' | 'report' | 'stage_transition'
+  type?: 'chat' | 'report' | 'stage_transition' | 'progress'
   report_id?: number
   sources?: SourceItem[]
 }
